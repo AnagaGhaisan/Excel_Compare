@@ -317,75 +317,80 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
                     dst_cell.number_format = src_cell.number_format
                     dst_cell.alignment = src_cell.alignment.copy()
 
-    # --- 15) SATU LOOP UNTUK SEMUA (TULIS DATA + HITUNG TOTAL) ---
+ # --- 15) SATU LOOP UNTUK SEMUA (TULIS DATA + HITUNG TOTAL) ---
+    processed_coretax = set() # Untuk melacak voucher mana yang sudah muncul data Coretax-nya
+
     for i in range(len(merged)):
-        # Logika Pindah Sheet jika sudah mencapai limit (500.000)
+        # Logika Pindah Sheet (Limit 500.000)
         if current_row_in_sheet >= max_data_rows_per_sheet:
             sheet_count += 1
             current_ws = wb.create_sheet(title=f"Sheet{sheet_count}")
-            _copy_header_rows(template_ws, current_ws) # Copy header ke sheet baru
+            _copy_header_rows(template_ws, current_ws)
             current_row_in_sheet = 0
 
         r = start_row + current_row_in_sheet
         row = merged.iloc[i]
         
-        # Nilai dasar dari baris saat ini
         v_bal = _parse_id_number(row.get("Balance", 0))
         voucher_no = str(row.get("NO_VOUCHER", "-"))
         
-        # Default nilai yang akan ditulis (sebelum dicek duplikat)
+        # --- SISI GL (KIRI): SELALU AMBIL NILAI ASLI (SPLIT) ---
         row_debit = float(row.get("Debit Amount", 0))
         row_credit = float(row.get("Credit Amount", 0))
         row_net = float(row.get("Net", 0))
-        row_dpp = float(row.get("DPP", 0))
-        row_ppn = float(row.get("PPN", 0))
-        row_diff = float(row.get("Difference", 0))
-        status = ""
 
-        # --- LOGIKA DUPLIKAT & KONSOLIDASI ---
-        if voucher_no != "-" and voucher_count.get(voucher_no, 0) > 1:
-            if voucher_no not in voucher_group_mapping:
-                # INI BARIS PERTAMA DARI GRUP DUPLIKAT
-                voucher_group_mapping[voucher_no] = current_duplicate_group
-                status = f"Duplicate {current_duplicate_group}"
-                
-                # Lakukan Konsolidasi (Jumlahkan semua baris dengan voucher ini)
+        # Selalu tambahkan data GL ke subtotal (karena data split)
+        debit_total += row_debit
+        credit_total += row_credit
+        net_total += row_net
+        balance_total += v_bal
+
+        # --- SISI CORETAX (KANAN): AMBIL YANG ATAS SAJA ---
+        is_duplicate = voucher_no != "-" and voucher_count.get(voucher_no, 0) > 1
+        
+        if voucher_no != "-" and voucher_no not in processed_coretax:
+            # INI BARIS PERTAMA (Data Coretax Muncul)
+            row_dpp = float(row.get("DPP", 0))
+            row_ppn = float(row.get("PPN", 0))
+            
+            # Hitung Difference berdasarkan TOTAL grup GL vs Data Coretax
+            if is_duplicate:
                 v_rows = merged[merged["NO_VOUCHER"] == voucher_no]
-                row_debit = v_rows["Debit Amount"].sum()
-                row_credit = v_rows["Credit Amount"].sum()
+                total_gl_net = v_rows["Net"].sum()
+                total_gl_debit = v_rows["Debit Amount"].sum()
                 
-                # Hitung ulang Net & Difference untuk baris konsolidasi
-                combined_row = row.copy()
-                combined_row["Debit Amount"] = row_debit
-                combined_row["Credit Amount"] = row_credit
-                row_net = calculate_net(combined_row)
-                row_diff = row_net - row_dpp
-
-                # TAMBAH KE SUBTOTAL (Hanya baris pertama yang masuk hitungan)
-                debit_total += row_debit
-                credit_total += row_credit
-                net_total += row_net
-                dpp_total += row_dpp
-                ppn_total += row_ppn
-                difference_total += row_diff
-                balance_total += v_bal
+                if row["Account Name"] == "Sales Return":
+                    row_diff = total_gl_debit + row_dpp
+                else:
+                    row_diff = total_gl_net - row_dpp
                 
-                current_duplicate_group += 1
-            else:
-                # INI BARIS LANJUTAN (Set ke 0 agar tidak double di Excel)
+                if voucher_no not in voucher_group_mapping:
+                    voucher_group_mapping[voucher_no] = current_duplicate_group
+                    current_duplicate_group += 1
                 status = f"Duplicate {voucher_group_mapping[voucher_no]}"
-                row_debit = row_credit = row_net = row_dpp = row_ppn = row_diff = 0
-                # Tidak ditambah ke total (0 + 0 = tetap)
-        else:
-            # INI BARIS UNIK
-            status = "Unique"
-            debit_total += row_debit
-            credit_total += row_credit
-            net_total += row_net
+            else:
+                # Unique
+                if row["Account Name"] == "Sales Return":
+                    row_diff = row_debit + row_dpp
+                else:
+                    row_diff = row_net - row_dpp
+                status = "Unique"
+            
+            # Tambahkan data Coretax ke subtotal hanya SEKALI
             dpp_total += row_dpp
             ppn_total += row_ppn
             difference_total += row_diff
-            balance_total += v_bal
+            
+            processed_coretax.add(voucher_no)
+        else:
+            # INI BARIS LANJUTAN (Sisi Kanan di-nol-kan agar tidak double)
+            row_dpp = 0
+            row_ppn = 0
+            row_diff = 0
+            if is_duplicate:
+                status = f"Duplicate {voucher_group_mapping[voucher_no]}"
+            else:
+                status = "Unique"
 
         # --- PROSES CETAK KE SHEET ---
         current_ws.cell(r, 1).value = row.get("Account No.")
@@ -410,7 +415,7 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
         current_ws.cell(r, 20).value = status
         
         current_row_in_sheet += 1
-
+        
     # --- 16) CETAK HASIL SUBTOTAL AKHIR (Baris 3 di Sheet Utama) ---
     template_ws.cell(3, 7).value = debit_total
     template_ws.cell(3, 8).value = credit_total
