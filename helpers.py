@@ -182,6 +182,8 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
     keep_cols_2 = [c for c in ["NO_VOUCHER", "VOUCHER_NO", "DPP", "PPN", "CUSTOMER", "FP_STATUS"] if c in coretax_2.columns]
     coretax_combined = pd.concat([coretax_1[keep_cols_1], coretax_2[keep_cols_2]], ignore_index=True)
 
+    coretax_combined = coretax_combined.drop_duplicates(subset=["NO_VOUCHER"], keep="first")
+
     # 6) kalau NO_VOUCHER muncul beberapa kali, DPP/PPN dijumlah, CUSTOMER diambil first non-null, status digabung unik
     def join_unique(series):
         vals = [v for v in series.dropna().astype(str).tolist() if v.strip()]
@@ -197,6 +199,7 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
         agg_map["VOUCHER_NO"] = "first"
 
     # Aggregate the combined coretax data
+    coretax_agg = coretax_combined.groupby("NO_VOUCHER", as_index=False).agg(agg_map)
 
     # 8) Debugging step: Check columns in Coretax_2
     print("Columns in Coretax_2:", coretax_2.columns)
@@ -207,38 +210,14 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
     else:
         print("NO FP MODIF NOT found in Coretax_2")
 
-    # --- 1) Gabungkan Coretax Tanpa Agregasi Dahulu ---
-    coretax_combined = pd.concat([coretax_1, coretax_2], ignore_index=True)
-
-    # --- 2) Identifikasi Kasus Split yang Mirip (Jumlah Baris Sama) ---
-    # Hitung berapa kali tiap voucher muncul di masing-masing file
-    k3_counts = k3['No Faktur (key)'].value_counts()
-    core_counts = coretax_combined['NO_VOUCHER'].value_counts()
-
-    # Fungsi untuk menentukan apakah harus pakai row_order
-    def check_split_case(v_no):
-        if v_no == "-" or pd.isna(v_no): return False
-        # Hanya apply jika jumlah baris di K3 dan Coretax SAMA (Misal sama-sama 2 baris)
-        return k3_counts.get(v_no, 0) == core_counts.get(v_no, 0) and k3_counts.get(v_no, 0) > 1
-
-    # Tandai baris yang masuk kategori "Kasus Mirip"
-    k3['is_split_case'] = k3['No Faktur (key)'].apply(check_split_case)
-    coretax_combined['is_split_case'] = coretax_combined['NO_VOUCHER'].apply(check_split_case)
-
-    # Tambahkan row_order HANYA untuk yang is_split_case
-    k3['row_order'] = 0
-    k3.loc[k3['is_split_case'], 'row_order'] = k3[k3['is_split_case']].groupby('No Faktur (key)').cumcount()
-
-    coretax_combined['row_order'] = 0
-    coretax_combined.loc[coretax_combined['is_split_case'], 'row_order'] = coretax_combined[coretax_combined['is_split_case']].groupby('NO_VOUCHER').cumcount()
-
-    # --- 3) Merge dengan Kondisi ---
+    # 10) Merge
     merged = pd.merge(
         k3,
-        coretax_combined,
-        left_on=["No Faktur (key)", "row_order"],
-        right_on=["NO_VOUCHER", "row_order"],
-        how="left"
+        coretax_agg,
+        left_on="No Faktur (key)",
+        right_on="NO_VOUCHER",
+        how="left",
+        indicator=True
     )
 
 # 11) Compute Difference based on account type
@@ -317,11 +296,11 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
     current_duplicate_group = 1
     voucher_count = merged["NO_VOUCHER"].value_counts().to_dict()
 
-    template_ws = ws 
+    template_ws = ws # Sheet pertama (template)
     current_ws = ws
     current_row_in_sheet = 0 
     sheet_count = 1
-    start_row = 5
+    start_row = 5 # Data mulai baris 5
     max_data_rows_per_sheet = 500000
 
     # Helper: copy header rows (1-4) from template to a new sheet
@@ -338,117 +317,101 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
                     dst_cell.number_format = src_cell.number_format
                     dst_cell.alignment = src_cell.alignment.copy()
 
-    # --- 15) LOOP PENULISAN (TETAP SPLIT, HASIL AKURAT) ---
-# --- 15) LOOP PENULISAN ---
+    # --- 15) SATU LOOP UNTUK SEMUA (TULIS DATA + HITUNG TOTAL) ---
     for i in range(len(merged)):
+        # Logika Pindah Sheet jika sudah mencapai limit (500.000)
         if current_row_in_sheet >= max_data_rows_per_sheet:
             sheet_count += 1
             current_ws = wb.create_sheet(title=f"Sheet{sheet_count}")
-            _copy_header_rows(template_ws, current_ws)
+            _copy_header_rows(template_ws, current_ws) # Copy header ke sheet baru
             current_row_in_sheet = 0
 
         r = start_row + current_row_in_sheet
         row = merged.iloc[i]
-
-        # 1. AMBIL NILAI DASAR (Selalu definisikan di awal loop agar aman)
-        val_debit = float(row.get("Debit Amount", 0))
-        val_credit = float(row.get("Credit Amount", 0))
-        val_net = float(row.get("Net", 0))
-        val_bal = _parse_id_number(row.get("Balance", 0))
-        val_dpp = float(row.get("DPP", 0))
-        val_ppn = float(row.get("PPN", 0))
-        val_diff = float(row.get("Difference", 0))
         
+        # Nilai dasar dari baris saat ini
+        v_bal = _parse_id_number(row.get("Balance", 0))
         voucher_no = str(row.get("NO_VOUCHER", "-"))
+        
+        # Default nilai yang akan ditulis (sebelum dicek duplikat)
+        row_debit = float(row.get("Debit Amount", 0))
+        row_credit = float(row.get("Credit Amount", 0))
+        row_net = float(row.get("Net", 0))
+        row_dpp = float(row.get("DPP", 0))
+        row_ppn = float(row.get("PPN", 0))
+        row_diff = float(row.get("Difference", 0))
         status = ""
-        is_split = row.get('is_split_case', False)
 
-        # 2. LOGIKA PERHITUNGAN & STATUS
-        if is_split:
-            # KASUS SPLIT: Tulis 1-ke-1, Total dihitung tiap baris
-            status = f"Split Match ({int(row['row_order'])+1})"
-            
-            # Tambahkan ke Subtotal Global
-            debit_total += val_debit
-            credit_total += val_credit
-            net_total += val_net
-            balance_total += val_bal
-            dpp_total += val_dpp
-            ppn_total += val_ppn
-            difference_total += (val_net - val_dpp)
-            
-            # Update nilai diff khusus tampilan split
-            val_diff = val_net - val_dpp
-
-        elif voucher_no != "-" and voucher_count.get(voucher_no, 0) > 1:
-            # KASUS DUPLIKAT BIASA (KONSOLIDASI)
+        # --- LOGIKA DUPLIKAT & KONSOLIDASI ---
+        if voucher_no != "-" and voucher_count.get(voucher_no, 0) > 1:
             if voucher_no not in voucher_group_mapping:
+                # INI BARIS PERTAMA DARI GRUP DUPLIKAT
                 voucher_group_mapping[voucher_no] = current_duplicate_group
                 status = f"Duplicate {current_duplicate_group}"
                 
-                # Konsolidasi Sisi Kiri (GL)
+                # Lakukan Konsolidasi (Jumlahkan semua baris dengan voucher ini)
                 v_rows = merged[merged["NO_VOUCHER"] == voucher_no]
-                val_debit = v_rows["Debit Amount"].sum()
-                val_credit = v_rows["Credit Amount"].sum()
+                row_debit = v_rows["Debit Amount"].sum()
+                row_credit = v_rows["Credit Amount"].sum()
                 
-                # Hitung ulang Net & Diff untuk baris pertama
+                # Hitung ulang Net & Difference untuk baris konsolidasi
                 combined_row = row.copy()
-                combined_row["Debit Amount"] = val_debit
-                combined_row["Credit Amount"] = val_credit
-                val_net = calculate_net(combined_row)
-                val_diff = val_net - val_dpp
+                combined_row["Debit Amount"] = row_debit
+                combined_row["Credit Amount"] = row_credit
+                row_net = calculate_net(combined_row)
+                row_diff = row_net - row_dpp
 
-                # Tambahkan ke Subtotal Global (Hanya sekali per grup)
-                debit_total += val_debit
-                credit_total += val_credit
-                net_total += val_net
-                balance_total += val_bal
-                dpp_total += val_dpp
-                ppn_total += val_ppn
-                difference_total += val_diff
+                # TAMBAH KE SUBTOTAL (Hanya baris pertama yang masuk hitungan)
+                debit_total += row_debit
+                credit_total += row_credit
+                net_total += row_net
+                dpp_total += row_dpp
+                ppn_total += row_ppn
+                difference_total += row_diff
+                balance_total += v_bal
                 
                 current_duplicate_group += 1
             else:
+                # INI BARIS LANJUTAN (Set ke 0 agar tidak double di Excel)
                 status = f"Duplicate {voucher_group_mapping[voucher_no]}"
-                # Baris lanjutan di-set 0 agar tidak double counting
-                val_debit = val_credit = val_net = val_dpp = val_ppn = val_diff = 0
-                balance_total += val_bal # Balance tetap dihitung per baris jika perlu
+                row_debit = row_credit = row_net = row_dpp = row_ppn = row_diff = 0
+                # Tidak ditambah ke total (0 + 0 = tetap)
         else:
-            # KASUS UNIQUE
+            # INI BARIS UNIK
             status = "Unique"
-            debit_total += val_debit
-            credit_total += val_credit
-            net_total += val_net
-            balance_total += val_bal
-            dpp_total += val_dpp
-            ppn_total += val_ppn
-            difference_total += val_diff
+            debit_total += row_debit
+            credit_total += row_credit
+            net_total += row_net
+            dpp_total += row_dpp
+            ppn_total += row_ppn
+            difference_total += row_diff
+            balance_total += v_bal
 
-        # 3. TULIS DATA KE EXCEL (Sekarang variabel pasti terdefinisi)
+        # --- PROSES CETAK KE SHEET ---
         current_ws.cell(r, 1).value = row.get("Account No.")
         current_ws.cell(r, 2).value = row.get("Account Name")
         current_ws.cell(r, 3).value = row.get("Date")
         current_ws.cell(r, 4).value = row.get("Voucher Category")
         current_ws.cell(r, 5).value = row.get("Voucher No.")
         current_ws.cell(r, 6).value = row.get("Description")
-        current_ws.cell(r, 7).value = val_debit
-        current_ws.cell(r, 8).value = val_credit
-        current_ws.cell(r, 9).value = val_net
+        current_ws.cell(r, 7).value = row_debit
+        current_ws.cell(r, 8).value = row_credit
+        current_ws.cell(r, 9).value = row_net
         current_ws.cell(r, 10).value = row.get("Direction")
-        current_ws.cell(r, 11).value = val_bal
+        current_ws.cell(r, 11).value = v_bal
         
         current_ws.cell(r, 13).value = voucher_no
         current_ws.cell(r, 14).value = row.get("NO_FP_MODIF")
-        current_ws.cell(r, 15).value = val_dpp
-        current_ws.cell(r, 16).value = val_ppn
-        current_ws.cell(r, 17).value = val_diff
+        current_ws.cell(r, 15).value = row_dpp
+        current_ws.cell(r, 16).value = row_ppn
+        current_ws.cell(r, 17).value = row_diff
         current_ws.cell(r, 18).value = row.get("Customer")
         current_ws.cell(r, 19).value = row.get("Keterangan (Digunggung/Tidak Digunngung)")
         current_ws.cell(r, 20).value = status
         
         current_row_in_sheet += 1
 
-    # --- 16) CETAK TOTAL KE BARIS 3 ---
+    # --- 16) CETAK HASIL SUBTOTAL AKHIR (Baris 3 di Sheet Utama) ---
     template_ws.cell(3, 7).value = debit_total
     template_ws.cell(3, 8).value = credit_total
     template_ws.cell(3, 9).value = net_total
@@ -457,7 +420,7 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
     template_ws.cell(3, 16).value = ppn_total
     template_ws.cell(3, 17).value = difference_total 
 
-    # Penulisan Bold (Font)
+    # Tambahkan Bold agar rapi
     bold_font = Font(bold=True)
     for col in [7, 8, 9, 11, 15, 16, 17]:
         template_ws.cell(3, col).font = bold_font
