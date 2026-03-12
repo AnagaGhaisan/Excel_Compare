@@ -141,7 +141,7 @@ def show_comparison():
     # --- MASALAH ADA DI SINI ---
     # file_path = os.path.join(BASE_DIR, 'outputs', filename)  <-- ### HAPUS BARIS INI ###
     # Baris di atas harus dihapus karena membuat sistem mencari di /outputs/ saja, 
-    # bukan di /outputs/recap/ atau /outputs/compare/
+    # bukan di /outputs/recap/ atau /outputs/compare/ 
 
     # 4. Ambil parameter pendukung
     current_sheet = request.args.get('sheet_name', sheet_list[0] if sheet_list else None)
@@ -227,7 +227,7 @@ def download_file(filename):
 
 if __name__ == "__main__":
     # Ubah 'True' menjadi 'False' jika ingin pindah ke mode production
-    DEBUG_MODE = False 
+    DEBUG_MODE = True 
 
     if DEBUG_MODE:
         print("Running in DEBUG mode...")

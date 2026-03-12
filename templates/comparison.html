@@ -64,7 +64,14 @@
                             </div>
                         {% endfor %}
                     {% else %}
-                        {{ table_html | safe }}
+                        <div class="sheet-section mb-5">
+                            <h4 class="fw-bold mb-3 p-2 border-start border-4 border-primary bg-light">
+                                <i class="bi bi-file-earmark-spreadsheet"></i> {{ current_sheet }}
+                            </h4>
+                            <div class="table-responsive">
+                                {{ table_html | safe }}
+                            </div>
+                        </div>
                     {% endif %}
                 </div>
             </div>
