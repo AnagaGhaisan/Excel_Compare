@@ -1,13 +1,15 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Comparison Results</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="icon" href="{{ url_for('static', filename='images/Logo_FK.png') }}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    <link rel="icon" href="{{ url_for('static', filename='images/Logo_FK.png') }}" />
 </head>
+
 <body id="comparisonPage">
     <!-- Navbar Header -->
     <nav class="navbar fixed-top navbar-light bg-white">
@@ -16,82 +18,81 @@
         </div>
     </nav>
 
- <div class="container min-vh-100">
-    <div class="card shadow-sm mb-5">
-        <div class="mx-4 shadow-sm p-3 my-2 rounded bg-light">
-            <div class="d-flex justify-content-between align-items-start">
-                <div>
-                    <h3 class="fw-bold text-black">{{ 'Recapitulation Report' if mode == 'recap' else 'Comparison Results' }}</h3>
-                    <p class="text-muted mb-0">File: {{ filename }}</p>
-                </div>
+    <div class="container min-vh-100">
+        <div class="card shadow-sm mb-5">
+            <div class="mx-4 shadow-sm p-3 my-2 rounded bg-light">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h3 class="fw-bold text-black">
+                            {{ 'Recapitulation Report' if mode == 'recap' else 'Comparison
+                            Results' }}
+                        </h3>
+                        <p class="text-muted mb-0">File: {{ filename }}</p>
+                    </div>
 
-                {% if mode != 'recap' %}
-                <div class="btn-group">
-                    <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                        <i class="bi bi-layers"></i> Select Sheet
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                        {% if sheets %}
-                            {% for sheet in sheets %}
-                             <li>
-                                <a class="dropdown-item {% if sheet == current_sheet %}active{% endif %}" 
+                    {% if mode != 'recap' %}
+                    <div class="btn-group">
+                        <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown"
+                            aria-expanded="false">
+                            <i class="bi bi-layers"></i> Select Sheet
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            {% if sheets %} {% for sheet in sheets %}
+                            <li>
+                                <a class="dropdown-item {% if sheet == current_sheet %}active{% endif %}"
                                     href="/comparison?updated_file={{ filename }}&mode=compare&sheets={{ ','.join(sheets) }}&sheet_name={{ sheet }}">
                                     {{ sheet }}
                                 </a>
                             </li>
-                            {% endfor %}
-                        {% else %}
-                            <li><a class="dropdown-item disabled" href="#">No Sheets Found</a></li>
-                        {% endif %}
-                    </ul>
-                </div>
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="card-body">
-            <div class="table-box">
-                <div class="table-responsive">
-                    {% if mode == 'recap' %}
-                        {% for table in all_tables %}
-                            <div class="sheet-section mb-5">
-                                <h4 class="fw-bold mb-3 p-2 border-start border-4 border-primary bg-light">
-                                    <i class="bi bi-file-earmark-spreadsheet"></i> {{ table.name }}
-                                </h4>
-                                <div class="table-responsive">
-                                    {{ table.content | safe }}
-                                </div>
-                            </div>
-                        {% endfor %}
-                    {% else %}
-                        <div class="sheet-section mb-5">
-                            <h4 class="fw-bold mb-3 p-2 border-start border-4 border-primary bg-light">
-                                <i class="bi bi-file-earmark-spreadsheet"></i> {{ current_sheet }}
-                            </h4>
-                            <div class="table-responsive">
-                                {{ table_html | safe }}
-                            </div>
-                        </div>
+                            {% endfor %} {% else %}
+                            <li>
+                                <a class="dropdown-item disabled" href="#">No Sheets Found</a>
+                            </li>
+                            {% endif %}
+                        </ul>
+                    </div>
                     {% endif %}
                 </div>
             </div>
-        </div>
 
-        {% if mode != 'recap' %}
-        <div class="mx-4 shadow-sm p-3 mb-4 rounded bg-light">
-            <div class="pagination-container d-flex justify-content-center">
-                {{ pagination_html | safe }}
+            <div class="card-body">
+                <div class="table-box">
+                    <div class="table-responsive">
+                        {% if mode == 'recap' %} {% for table in all_tables %}
+                        <div class="sheet-section mb-5">
+                            <h4 class="fw-bold mb-3 p-2 border-start border-4 border-primary bg-light">
+                                <i class="bi bi-file-earmark-spreadsheet"></i> {{ table.name
+                                }}
+                            </h4>
+                            <div class="table-responsive">{{ table.content | safe }}</div>
+                        </div>
+                        {% endfor %} {% else %}
+                        <div class="sheet-section mb-5">
+                            <h4 class="fw-bold mb-3 p-2 border-start border-4 border-primary bg-light">
+                                <i class="bi bi-file-earmark-spreadsheet"></i> {{
+                                current_sheet }}
+                            </h4>
+                            <div class="table-responsive">{{ table_html | safe }}</div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
             </div>
+
+            {% if mode != 'recap' %}
+            <div class="mx-4 shadow-sm p-3 mb-4 rounded bg-light">
+                <div class="pagination-container d-flex justify-content-center">
+                    {{ pagination_html | safe }}
+                </div>
+            </div>
+            {% endif %}
         </div>
-        {% endif %}
     </div>
-</div>
 
     <!-- Action buttons outside container -->
     <div class="container">
         <div class="action-buttons">
-            <a href="{{ url_for('download_file', filename=updated_file, mode=mode) }}" 
-                class="btn btn-success">
+            <a href="{{ url_for('download_file', filename=updated_file, mode=mode) }}" class="btn btn-success">
                 <i class="bi bi-download"></i> Download Updated Draft Output
             </a>
             <a href="{{ url_for('home') }}" class="btn btn-primary">Back to Home</a>
@@ -100,7 +101,7 @@
 
     <div id="loadingScreen" class="loading-overlay">
         <div class="loading-content">
-            <div class="spinner-border text-success" role="status" style="width: 3rem; height: 3rem;">
+            <div class="spinner-border text-success" role="status" style="width: 3rem; height: 3rem">
                 <span class="visually-hidden">Loading...</span>
             </div>
             <h5 class="mt-3 fw-bold text-dark">Please Wait...</h5>
@@ -113,32 +114,38 @@
 
     <!-- JavaScript to handle the loading screen -->
     <script>
-        const loadingScreen = document.getElementById('loadingScreen');
-        const paginationContainer = document.querySelector('.pagination-container');
-        const dropdownMenu = document.querySelector('.dropdown-menu'); // Target untuk Pilih Sheet
+        const loadingScreen = document.getElementById("loadingScreen");
+        const paginationContainer = document.querySelector(
+            ".pagination-container",
+        );
+        const dropdownMenu = document.querySelector(".dropdown-menu"); // Target untuk Pilih Sheet
 
         // 1. Logika Loading untuk Pagination
         if (paginationContainer) {
-            paginationContainer.addEventListener('click', function(event) {
-                const targetLink = event.target.closest('a');
-                if (targetLink && targetLink.getAttribute('href')) {
-                    loadingScreen.style.display = 'block';
+            paginationContainer.addEventListener("click", function (event) {
+                const targetLink = event.target.closest("a");
+                if (targetLink && targetLink.getAttribute("href")) {
+                    loadingScreen.style.display = "block";
                 }
             });
         }
 
         // 2. Logika Loading untuk Pilih Sheet (Dropdown)
         if (dropdownMenu) {
-            dropdownMenu.addEventListener('click', function(event) {
-                const targetLink = event.target.closest('a');
-            
+            dropdownMenu.addEventListener("click", function (event) {
+                const targetLink = event.target.closest("a");
+
                 // Pastikan yang diklik adalah link, punya href, dan bukan '#'
-                if (targetLink && targetLink.getAttribute('href') && targetLink.getAttribute('href') !== '#') {
-                    loadingScreen.style.display = 'block';
+                if (
+                    targetLink &&
+                    targetLink.getAttribute("href") &&
+                    targetLink.getAttribute("href") !== "#"
+                ) {
+                    loadingScreen.style.display = "block";
                 }
             });
         }
     </script>
-
 </body>
+
 </html>

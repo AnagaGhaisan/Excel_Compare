@@ -1,155 +1,141 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FileCompare</title>
-    <!-- Bootstrap 5 for styling -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="icon" href="{{ url_for('static', filename='images/Logo_2.png') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FileCompare</title>
+  <!-- Bootstrap 5 for styling -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="icon" href="{{ url_for('static', filename='images/Logo_2.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
+
 <body id="uploudPage">
-    <div class="min-vh-100 d-flex flex-column">
-        <!-- Navbar Header -->
-      <nav class="navbar navbar-light bg-light shadow-sm py-2">
-        <div class="container-fluid px-4 d-flex justify-content-between align-items-center">
-          <a class="navbar-brand" href="{{ url_for('home') }}">
-            <img
-              src="{{ url_for('static', filename='images/Logo_1.png') }}"
-              alt="Logo"
-              width="180"
-            />
-          </a>
+  <div class="min-vh-100 d-flex flex-column">
+    <!-- Navbar Header -->
+    <nav class="navbar navbar-light bg-light shadow-sm py-2">
+      <div class="container-fluid px-4 d-flex justify-content-between align-items-center">
+        <a class="navbar-brand" href="{{ url_for('home') }}">
+          <img src="{{ url_for('static', filename='images/Logo_1.png') }}" alt="Logo" width="180" />
+        </a>
 
-          <button
-            class="navbar-toggler border-0"
-            type="button"
-            data-bs-toggle="offcanvas"
-            data-bs-target="#offcanvasNavbar"
-          >
-            <span class="navbar-toggler-icon"></span>
-          </button>
+        <button class="navbar-toggler border-0" type="button" data-bs-toggle="offcanvas"
+          data-bs-target="#offcanvasNavbar">
+          <span class="navbar-toggler-icon"></span>
+        </button>
 
-          <div
-            class="offcanvas offcanvas-end"
-            tabindex="-1"
-            id="offcanvasNavbar"
-            aria-labelledby="offcanvasNavbarLabel"
-          >
-            <div class="offcanvas-header border-bottom">
-              <h5 class="offcanvas-title fw-bold" id="offcanvasNavbarLabel">
-                AuditFlow Menu
-              </h5>
-              <button
-                type="button"
-                class="btn-close"
-                data-bs-dismiss="offcanvas"
-                aria-label="Close"
-              ></button>
-            </div>
-            
-            <div class="offcanvas-body">
-              <ul class="navbar-nav justify-content-end flex-grow-1 pe-3">
-                <li class="nav-item mb-2">
-                  <a class="nav-link" href="{{ url_for('home') }}">
-                    <i class="bi bi-house-door me-2"></i> Beranda
-                  </a>
+        <div class="offcanvas offcanvas-end" tabindex="-1" id="offcanvasNavbar" aria-labelledby="offcanvasNavbarLabel">
+          <div class="offcanvas-header border-bottom">
+            <h5 class="offcanvas-title fw-bold" id="offcanvasNavbarLabel">
+              AuditFlow Menu
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+          </div>
+
+          <div class="offcanvas-body">
+            <ul class="navbar-nav justify-content-end flex-grow-1 pe-3">
+              <li class="nav-item mb-2">
+                <a class="nav-link" href="{{ url_for('home') }}">
+                  <i class="bi bi-house-door me-2"></i> Beranda
+                </a>
                 <hr />
                 <h6 class="offcanvas-title fw-bold mb-1" id="offcanvasNavbarLabel">
                   DPP Menu
                 </h6>
-                </li>
-                <li class="nav-item mb-2">
-                  <a class="nav-link" href="{{ url_for('file_compare') }}">
-                    <i class="bi bi-arrow-left-right me-2"></i> AuditFlow
-                    Compare
-                  </a>
-                </li>
-                <li class="nav-item mb-2">
-                  <a class="nav-link active" href="{{ url_for('file_recap') }}">
-                    <i class="bi bi-calculator me-2"></i> AuditFlow Recap
-                  </a>
-                </li>
-                <hr />
-                <h6 class="offcanvas-title fw-bold mb-1" id="offcanvasNavbarLabel">
-                  PPH23 Menu
-                </h6>
-                <li class="nav-item mb-2">
-                  <a class="nav-link" href="{{ url_for('file_compare') }}">
-                    <i class="bi bi-arrow-left-right me-2"></i> AuditFlow
-                    Compare
-                  </a>
-                </li>
-                <li class="nav-item mb-2">
-                  <a class="nav-link active" href="{{ url_for('file_recap') }}">
-                    <i class="bi bi-calculator me-2"></i> AuditFlow Recap
-                  </a>
-                </li>
-              </ul>
-            </div>
+              </li>
+              <li class="nav-item mb-2">
+                <a class="nav-link" href="{{ url_for('file_compare') }}">
+                  <i class="bi bi-arrow-left-right me-2"></i> AuditFlow
+                  Compare
+                </a>
+              </li>
+              <li class="nav-item mb-2">
+                <a class="nav-link active" href="{{ url_for('file_recap') }}">
+                  <i class="bi bi-calculator me-2"></i> AuditFlow Recap
+                </a>
+              </li>
+              <hr />
+              <h6 class="offcanvas-title fw-bold mb-1" id="offcanvasNavbarLabel">
+                PPH23 Menu
+              </h6>
+              <li class="nav-item mb-2">
+                <a class="nav-link" href="{{ url_for('file_compare') }}">
+                  <i class="bi bi-arrow-left-right me-2"></i> AuditFlow
+                  Compare
+                </a>
+              </li>
+              <li class="nav-item mb-2">
+                <a class="nav-link active" href="{{ url_for('file_recap') }}">
+                  <i class="bi bi-calculator me-2"></i> AuditFlow Recap
+                </a>
+              </li>
+            </ul>
           </div>
         </div>
-      </nav>
+      </div>
+    </nav>
 
-      <!-- Main container -->
-      <div class="container justify-content-center my-5 my-md-auto">
-          <div class="d-flex flex-column-reverse flex-md-row w-100">
-              <div class="col-md-6 ">
-                  <h1 class="heading text-start w-100">Upload File For Comparison</h1>
-                  <p class="text-start mb-3 w-100">Choose and Upload the File that You Will Compare</p>
-                  <!-- Form to upload K3 file and Coretax files -->
-                  <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data" class="shadow-lg p-3 rounded form-container">
-                      <div class="mb-3">
-                          <label for="k3_file" class="form-label file-label">Upload GL File:</label>
-                          <input type="file" class="form-control" name="k3_file" id="k3_file" required>
-                      </div>
-                      <div class="mb-3">
-                          <label for="coretax_file_1" class="form-label file-label">Upload Coretax Digunggung File:</label>
-                          <input type="file" class="form-control" name="coretax_file_1" id="coretax_file_1" required>
-                      </div>
-                      <div class="mb-4">
-                          <label for="coretax_file_2" class="form-label file-label">Upload Coretax Tidak Digunggung File:</label>
-                          <input type="file" class="form-control" name="coretax_file_2" id="coretax_file_2" required>
-                      </div>
-                      <button type="submit" class="btn btn-success w-100 upload-btn">Upload & Compare</button>
-                  </form>
-              </div>
+    <!-- Main container -->
+    <div class="container justify-content-center my-5 my-md-auto">
+      <div class="d-flex flex-column-reverse flex-md-row w-100">
+        <div class="col-md-6 ">
+          <h1 class="heading text-start w-100">Upload File For Comparison</h1>
+          <p class="text-start mb-3 w-100">Choose and Upload the File that You Will Compare</p>
+          <!-- Form to upload K3 file and Coretax files -->
+          <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data"
+            class="shadow-lg p-3 rounded form-container">
+            <div class="mb-3">
+              <label for="k3_file" class="form-label file-label">Upload GL File:</label>
+              <input type="file" class="form-control" name="k3_file" id="k3_file" required>
+            </div>
+            <div class="mb-3">
+              <label for="coretax_file_1" class="form-label file-label">Upload Coretax Digunggung File:</label>
+              <input type="file" class="form-control" name="coretax_file_1" id="coretax_file_1" required>
+            </div>
+            <div class="mb-4">
+              <label for="coretax_file_2" class="form-label file-label">Upload Coretax Tidak Digunggung File:</label>
+              <input type="file" class="form-control" name="coretax_file_2" id="coretax_file_2" required>
+            </div>
+            <button type="submit" class="btn btn-success w-100 upload-btn">Upload & Compare</button>
+          </form>
+        </div>
 
-              <div class="col-md-6 d-flex justify-content-center align-items-center">
-                  <img src="{{ url_for('static', filename='images/Logo_2.png') }}" alt="Background Image" class="img-fluid">
-              </div>
-          </div>
+        <div class="col-md-6 d-flex justify-content-center align-items-center">
+          <img src="{{ url_for('static', filename='images/Logo_2.png') }}" alt="Background Image" class="img-fluid">
+        </div>
       </div>
     </div>
+  </div>
 
 
-    <!-- Loading screen -->
-    <div id="loadingScreen" class="loading-overlay">
-        <div class="loading-content">
-            <div class="spinner-border text-success" role="status" style="width: 3rem; height: 3rem;">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <h5 class="mt-3 fw-bold text-dark">Please Wait...</h5>
-            <p class="text-muted">Preparing your data</p>
-        </div>
+  <!-- Loading screen -->
+  <div id="loadingScreen" class="loading-overlay">
+    <div class="loading-content">
+      <div class="spinner-border text-success" role="status" style="width: 3rem; height: 3rem;">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <h5 class="mt-3 fw-bold text-dark">Please Wait...</h5>
+      <p class="text-muted">Preparing your data</p>
     </div>
+  </div>
 
-    <!-- Bootstrap 5 JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+  <!-- Bootstrap 5 JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
 
-    <!-- JavaScript to handle the loading screen -->
-    <script>
-        const uploadForm = document.getElementById('uploadForm');
-        const loadingScreen = document.getElementById('loadingScreen');
+  <!-- JavaScript to handle the loading screen -->
+  <script>
+    const uploadForm = document.getElementById('uploadForm');
+    const loadingScreen = document.getElementById('loadingScreen');
 
-        // Show loading screen when form is submitted
-        uploadForm.addEventListener('submit', function(event) {
-            // Show loading screen
-            loadingScreen.style.display = 'block';
-        });
-    </script>
+    // Show loading screen when form is submitted
+    uploadForm.addEventListener('submit', function (event) {
+      // Show loading screen
+      loadingScreen.style.display = 'block';
+    });
+  </script>
 
 </body>
+
 </html>

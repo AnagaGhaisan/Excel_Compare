@@ -1,189 +1,201 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AuditFlow System</title>
-    <!-- Bootstrap 5 for styling -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet"/>
-    <link rel="icon" href="{{ url_for('static', filename='images/Logo_FK.png') }}"/>
-    <style>
-      body {
-        background-color: #f8f9fa;
-        font-family:
-          "Inter",
-          -apple-system,
-          sans-serif;
-      }
-      .landing-card {
-        border: none;
-        transition:
-          transform 0.3s ease,
-          shadow 0.3s ease;
-        border-radius: 15px;
-        overflow: hidden;
-      }
-      .landing-card:hover {
-        transform: translateY(-10px);
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1) !important;
-      }
-      .btn-primary {
-        border-radius: 10px;
-        padding: 10px 20px;
-        font-weight: 600;
-      }
-      .btn-success {
-        border-radius: 10px;
-        padding: 10px 20px;
-        font-weight: 600;
-      }
-      .hero-title {
-        color: #212529;
-        letter-spacing: -1px;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="min-vh-100 d-flex flex-column">
-      <nav class="navbar navbar-light bg-light shadow-sm py-2">
-        <div class="container-fluid px-4 d-flex justify-content-between align-items-center">
-          <a class="navbar-brand" href="{{ url_for('home') }}">
-            <img
-              src="{{ url_for('static', filename='images/Logo_F.png') }}"
-              alt="Logo"
-              width="180"
-            />
-          </a>
 
-          <button
-            class="navbar-toggler border-0"
-            type="button"
-            data-bs-toggle="offcanvas"
-            data-bs-target="#offcanvasNavbar"
-          >
-            <span class="navbar-toggler-icon"></span>
-          </button>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AuditFlow System</title>
+  <!-- Bootstrap 5 for styling -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="icon" href="{{ url_for('static', filename='images/Logo_FK.png') }}" />
+  <style>
+    body {
+      background-color: #f8f9fa;
+      font-family:
+        "Inter",
+        -apple-system,
+        sans-serif;
+    }
 
-          <div
-            class="offcanvas offcanvas-end"
-            tabindex="-1"
-            id="offcanvasNavbar"
-            aria-labelledby="offcanvasNavbarLabel"
-          >
-            <div class="offcanvas-header border-bottom">
-              <h5 class="offcanvas-title fw-bold" id="offcanvasNavbarLabel">
-                AuditFlow Menu
-              </h5>
-              <button
-                type="button"
-                class="btn-close"
-                data-bs-dismiss="offcanvas"
-                aria-label="Close"
-              ></button>
-            </div>
-            
-            <div class="offcanvas-body">
-              <ul class="navbar-nav justify-content-end flex-grow-1 pe-3">
-                <li class="nav-item mb-2">
-                  <a class="nav-link" href="{{ url_for('home') }}">
-                    <i class="bi bi-house-door me-2"></i> Beranda
-                  </a>
+    .landing-card {
+      border: none;
+      transition:
+        transform 0.3s ease,
+        shadow 0.3s ease;
+      border-radius: 15px;
+      overflow: hidden;
+    }
+
+    .landing-card:hover {
+      transform: translateY(-10px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1) !important;
+    }
+
+    .btn-primary {
+      border-radius: 10px;
+      padding: 10px 20px;
+      font-weight: 600;
+    }
+
+    .btn-success {
+      border-radius: 10px;
+      padding: 10px 20px;
+      font-weight: 600;
+    }
+
+    .hero-title {
+      color: #212529;
+      letter-spacing: -1px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="min-vh-100 d-flex flex-column">
+    <nav class="navbar navbar-light bg-light shadow-sm py-2">
+      <div class="container-fluid px-4 d-flex justify-content-between align-items-center">
+        <a class="navbar-brand" href="{{ url_for('home') }}">
+          <img src="{{ url_for('static', filename='images/Logo_B.png') }}" alt="Logo" width="180" />
+        </a>
+
+        <button class="navbar-toggler border-0" type="button" data-bs-toggle="offcanvas"
+          data-bs-target="#offcanvasNavbar">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="offcanvas offcanvas-end" tabindex="-1" id="offcanvasNavbar" aria-labelledby="offcanvasNavbarLabel">
+          <div class="offcanvas-header border-bottom">
+            <h5 class="offcanvas-title fw-bold" id="offcanvasNavbarLabel">
+              AuditFlow Menu
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+          </div>
+
+          <div class="offcanvas-body">
+            <ul class="navbar-nav justify-content-end flex-grow-1 pe-3">
+              <li class="nav-item mb-2">
+                <a class="nav-link" href="{{ url_for('home') }}">
+                  <i class="bi bi-house-door me-2"></i> Beranda
+                </a>
                 <hr />
                 <h6 class="offcanvas-title fw-bold mb-1" id="offcanvasNavbarLabel">
                   DPP Menu
                 </h6>
-                </li>
-                <li class="nav-item mb-2">
-                  <a class="nav-link" href="{{ url_for('file_compare') }}">
-                    <i class="bi bi-arrow-left-right me-2"></i> AuditFlow
-                    Compare
-                  </a>
-                </li>
-                <li class="nav-item mb-2">
-                  <a class="nav-link active" href="{{ url_for('file_recap') }}">
-                    <i class="bi bi-calculator me-2"></i> AuditFlow Recap
-                  </a>
-                </li>
-                <hr />
-                <h6 class="offcanvas-title fw-bold mb-1" id="offcanvasNavbarLabel">
-                  PPH23 Menu
-                </h6>
-                <li class="nav-item mb-2">
-                  <a class="nav-link" href="{{ url_for('file_compare') }}">
-                    <i class="bi bi-arrow-left-right me-2"></i> AuditFlow
-                    Compare
-                  </a>
-                </li>
-                <li class="nav-item mb-2">
-                  <a class="nav-link active" href="{{ url_for('file_recap') }}">
-                    <i class="bi bi-calculator me-2"></i> AuditFlow Recap
-                  </a>
-                </li>
-              </ul>
+              </li>
+              <li class="nav-item mb-2">
+                <a class="nav-link" href="{{ url_for('file_compare') }}">
+                  <i class="bi bi-arrow-left-right me-2"></i> AuditFlow
+                  Compare
+                </a>
+              </li>
+              <li class="nav-item mb-2">
+                <a class="nav-link active" href="{{ url_for('file_recap') }}">
+                  <i class="bi bi-calculator me-2"></i> AuditFlow Recap
+                </a>
+              </li>
+              <hr />
+              <h6 class="offcanvas-title fw-bold mb-1" id="offcanvasNavbarLabel">
+                PPH23 Menu
+              </h6>
+              <li class="nav-item mb-2">
+                <a class="nav-link" href="{{ url_for('file_compare') }}">
+                  <i class="bi bi-arrow-left-right me-2"></i> AuditFlow
+                  Compare
+                </a>
+              </li>
+              <li class="nav-item mb-2">
+                <a class="nav-link active" href="{{ url_for('file_recap') }}">
+                  <i class="bi bi-calculator me-2"></i> AuditFlow Recap
+                </a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <div class="mt-auto mb-auto">
+      <div class="container d-flex flex-column justify-content-center align-items-center">
+        <div class="text-center mb-3">
+          <h1 class="display-4 fw-bold hero-title">
+            Welcome to the Application
+          </h1>
+          <p class="text-muted fs-5">Select the system you want to access.</p>
+        </div>
+
+        <div class="row g-4 justify-content-center w-100" style="max-width: 900px">
+          <div class="col-md-6 d-flex justify-content-center">
+            <div class="card landing-card p-4 shadow-sm w-100 border-0" role="button" data-bs-toggle="modal"
+              data-bs-target="#modalCompare">
+              <div class="card-body text-center">
+                <div class="mb-4">
+                  <img src="{{ url_for('static', filename='images/Logo_Fk.png') }}" alt="Logo" width="60" />
+                </div>
+                <h3 class="fw-bold mb-3">DPP</h3>
+                <p class="text-muted mb-4">
+                  Analyze data differences between files instantly.
+                </p>
+                <button class="btn btn-success w-100">Open Module</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-md-6 d-flex justify-content-center">
+            <div class="card landing-card p-4 shadow-sm w-100 border-0" role="button" data-bs-toggle="modal"
+              data-bs-target="#modalRecap">
+              <div class="card-body text-center">
+                <div class="mb-3">
+                  <img src="#" alt="Logo" width="60" />
+                </div>
+                <h3 class="fw-bold mb-3">PPH23</h3>
+                <p class="text-muted mb-4">
+                  #
+                </p>
+                <button class="btn btn-primary w-100">Open Module</button>
+              </div>
             </div>
           </div>
         </div>
-      </nav>
+      </div>
+    </div>
 
-      <div class="mt-auto mb-auto">
-        <div
-          class="container d-flex flex-column justify-content-center align-items-center"
-        >
-          <div class="text-center mb-3">
-            <h1 class="display-4 fw-bold hero-title">
-              Welcome to the Application
-            </h1>
-            <p class="text-muted fs-5">Choose a module to get started.</p>
+    <div class="modal fade" id="modalCompare" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+          <div class="modal-header border-0 pb-0">
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
-
-          <div
-            class="row g-4 justify-content-center w-100"
-            style="max-width: 900px"
-          >
-            <div class="col-md-6 d-flex justify-content-center">
-              <div class="card landing-card p-4 shadow-sm w-100">
-                <div class="card-body text-center">
-                  <div class="mb-4 text-primary">
-                    <img
-                      src="{{ url_for('static', filename='images/Logo_2.png') }}"
-                      alt="Logo"
-                      width="50"
-                    />
+          <div class="modal-body p-4">
+            <h2 class="text-center fw-bold mb-4">Select Comparison Type</h2>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <div class="card h-100 border-start border-0 shadow-lg">
+                  <div class="text-center card-body">
+                    <div class="mb-4">
+                      <img src="{{ url_for('static', filename='images/Logo_2.png') }}" alt="Logo" width="50" />
+                    </div>
+                    <h5 class="fw-bold">File Compare</h5>
+                    <p class="small text-muted">
+                      Upload and analyze differences between your data files
+                      instantly.
+                    </p>
+                    <a href="{{ url_for('file_compare') }}" class="btn btn-outline-success btn-sm w-100">Choose</a>
                   </div>
-                  <h3 class="fw-bold mb-3">File Compare</h3>
-                  <p class="text-muted mb-4">
-                    Upload and analyze differences between your data files
-                    instantly.
-                  </p>
-                  <a
-                    href="{{ url_for('file_compare') }}"
-                    class="btn btn-success w-100"
-                    >Go to FileCompare</a
-                  >
                 </div>
               </div>
-            </div>
-
-            <div class="col-md-6 d-flex justify-content-center">
-              <div class="card landing-card p-4 shadow-sm w-100">
-                <div class="card-body text-center">
-                  <div class="mb-3 text-success">
-                    <img
-                      src="{{ url_for('static', filename='images/Logo_4.png') }}"
-                      alt="Logo"
-                      width="50"
-                    />
+              <div class="col-md-6">
+                <div class="card h-100 border-start border-0 shadow-lg">
+                  <div class="text-center card-body">
+                    <div class="mb-4">
+                      <img src="{{ url_for('static', filename='images/Logo_4.png') }}" alt="Logo" width="45" />
+                    </div>
+                    <h5 class="fw-bold">File Recap</h5>
+                    <p class="small text-muted">
+                      View comprehensive summaries and historical recaps of
+                      processed files.
+                    </p>
+                    <a href="{{ url_for('file_recap') }}" class="btn btn-outline-primary btn-sm w-100">Choose</a>
                   </div>
-                  <h3 class="fw-bold mb-3">File Recap</h3>
-                  <p class="text-muted mb-4">
-                    View comprehensive summaries and historical recaps of
-                    processed files.
-                  </p>
-                  <a
-                    href="{{ url_for('file_recap') }}"
-                    class="btn btn-primary text-white w-100"
-                    >Go to File Recap</a
-                  >
                 </div>
               </div>
             </div>
@@ -192,10 +204,46 @@
       </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css"
-    />
-  </body>
+    <div class="modal fade" id="modalRecap" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+          <div class="modal-header border-0 pb-0">
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body p-4">
+            <h2 class="text-center fw-bold mb-4">Pilih Tipe </h2>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <div class="card h-100 border-start border-0 shadow-lg">
+                  <div class="card-body">
+                    <h5 class="fw-bold">#</h5>
+                    <p class="small text-muted">
+                      #
+                    </p>
+                    <a href="#" class="btn btn-outline-primary btn-sm w-100">Choose</a>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="card h-100 border-start border-0 shadow-lg">
+                  <div class="card-body">
+                    <h5 class="fw-bold">#</h5>
+                    <p class="small text-muted">
+                      #
+                    </p>
+                    <a href="#" class="btn btn-outline-info btn-sm w-100">Choose</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" />
+</body>
+
 </html>

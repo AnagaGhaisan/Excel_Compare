@@ -13,24 +13,25 @@ DRAFT_TEMPLATE_PATH = os.path.join(BASE_DIR, "static/template/Draft Output.xlsx"
 
 # Helper function to check file extensions
 def allowed_file(filename, allowed_extensions):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in allowed_extensions
+
 
 def extract_no_faktur_from_description(desc: str, voucher_cat: str) -> str | None:
     if pd.isna(desc):
         return None
-    
+
     s = str(desc).strip()
     parts = [p.strip() for p in s.split("/")]
-    
+
     if str(voucher_cat).strip() == "GL-JV":
         return parts[0] if len(parts) >= 1 and parts[0] else None
-    
+
     # --- LOGIKA KHUSUS DIGUNGGUNG: Deteksi Nominal di K3 ---
     if len(parts) >= 3:
         try:
             # Coba baca bagian ke-3 (nominal)
             clean_num = parts[2].replace(" ", "")
-            v = float(clean_num) # Bisa tembus jika desimal pakai titik
+            v = float(clean_num)  # Bisa tembus jika desimal pakai titik
             formatted_num = f"{int(v)}" if v.is_integer() else f"{v}"
             return f"{parts[1]}/ {formatted_num}"
         except ValueError:
@@ -42,7 +43,7 @@ def extract_no_faktur_from_description(desc: str, voucher_cat: str) -> str | Non
                     return f"{parts[1]}/ {formatted_num}"
             except:
                 pass
-                
+
     return parts[1] if len(parts) >= 2 and parts[1] else None
 
 
@@ -51,6 +52,7 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     Normalisasi nama kolom: uppercase, spasi/punctuation -> underscore, rapihin underscore.
     Contoh: 'No Voucher' -> 'NO_VOUCHER'
     """
+
     def clean(col):
         col = str(col).strip().upper()
         col = re.sub(r"[^A-Z0-9]+", "_", col)
@@ -60,6 +62,7 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = [clean(c) for c in df.columns]
     return df
+
 
 def _parse_id_number(x):
     """
@@ -92,27 +95,37 @@ def _parse_id_number(x):
     except:
         return np.nan
 
+
 def calculate_net(row):
     debit = float(row.get("Debit Amount", 0))
     credit = float(row.get("Credit Amount", 0))
     acc_name = str(row.get("Account Name", "")).strip()
 
     # Pendapatan: -Debit + Credit
-    if acc_name in ["Interest Bank Income", "Other Income", "Rental Income", 
-                    "Repair Service Income", "Sales", "Sales Price Protection"]:
-        return -debit + credit 
+    if acc_name in [
+        "Interest Bank Income",
+        "Other Income",
+        "Rental Income",
+        "Repair Service Income",
+        "Sales",
+        "Sales Price Protection",
+    ]:
+        return -debit + credit
 
     # Beban: Debit - Credit
     elif acc_name in ["POP Expense", "Promotion Gift"]:
         return debit - credit
-        
+
     # Sales Return: -Debit - Credit (Sesuai -AA10-AB10)
     elif acc_name == "Sales Return":
-        return -(debit - credit) 
-        
+        return -(debit - credit)
+
     return 0
-    
-def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dict, output_dir: str) -> str:
+
+
+def compare_files(
+    k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dict, output_dir: str
+) -> str:
     # k3_sheets, coretax_sheets_1, coretax_sheets_2 are already dicts of {sheet_name: DataFrame}
     # from pd.read_excel(..., sheet_name=None) in app.py — no need to re-read.
 
@@ -122,16 +135,24 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
 
     # 2) BARU terapkan ekstraksi No. Faktur & Nett pada variabel 'k3'
     k3["No Faktur (key)"] = k3.apply(
-        lambda row: extract_no_faktur_from_description(row.get('Description', ''), row.get('Voucher Category', '')), 
-        axis=1
+        lambda row: extract_no_faktur_from_description(
+            row.get("Description", ""), row.get("Voucher Category", "")
+        ),
+        axis=1,
     )
     # Bersihkan spasi agar tidak meleset saat merge
     k3["No Faktur (key)"] = k3["No Faktur (key)"].astype(str).str.strip()
     k3["Nett"] = k3.apply(calculate_net, axis=1)
 
     # 2) Normalize columns for Coretax (biar NO VOUCHER / DOC_NO kebaca konsisten)
-    coretax_1 = pd.concat([_normalize_columns(sheet_data) for sheet_data in coretax_sheets_1.values()], ignore_index=True)
-    coretax_2 = pd.concat([_normalize_columns(sheet_data) for sheet_data in coretax_sheets_2.values()], ignore_index=True)
+    coretax_1 = pd.concat(
+        [_normalize_columns(sheet_data) for sheet_data in coretax_sheets_1.values()],
+        ignore_index=True,
+    )
+    coretax_2 = pd.concat(
+        [_normalize_columns(sheet_data) for sheet_data in coretax_sheets_2.values()],
+        ignore_index=True,
+    )
 
     # Pastikan key jadi NO_VOUCHER
     if "DOC_NO" in coretax_1.columns and "NO_VOUCHER" not in coretax_1.columns:
@@ -140,9 +161,13 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
         coretax_2 = coretax_2.rename(columns={"DOC_NO": "NO_VOUCHER"})
 
     if "NO_VOUCHER" not in coretax_1.columns:
-        raise ValueError("Coretax Digunggung: kolom DOC_NO / NO VOUCHER tidak ditemukan.")
+        raise ValueError(
+            "Coretax Digunggung: kolom DOC_NO / NO VOUCHER tidak ditemukan."
+        )
     if "NO_VOUCHER" not in coretax_2.columns:
-        raise ValueError("Coretax Tidak Digunggung: kolom DOC_NO / NO VOUCHER tidak ditemukan.")
+        raise ValueError(
+            "Coretax Tidak Digunggung: kolom DOC_NO / NO VOUCHER tidak ditemukan."
+        )
 
     # 3) Harmonize DPP/PPN + CUSTOMER + status
     # --- Digunggung: AMOUNT_BEF_TAX = DPP, TAX_AMOUNT = PPN, CUSTOMER_NAME = CUSTOMER
@@ -151,7 +176,9 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
     if "PPN" not in coretax_1.columns and "TAX_AMOUNT" in coretax_1.columns:
         coretax_1["PPN"] = coretax_1["TAX_AMOUNT"]
 
-    coretax_1["CUSTOMER"] = coretax_1["CUSTOMER_NAME"] if "CUSTOMER_NAME" in coretax_1.columns else None
+    coretax_1["CUSTOMER"] = (
+        coretax_1["CUSTOMER_NAME"] if "CUSTOMER_NAME" in coretax_1.columns else None
+    )
     coretax_1["FP_STATUS"] = "FP Digunggung"
 
     # --- Tidak Digunggung: DPP = DPP, PPN = PPN, NAMA_PEMBELI = CUSTOMER
@@ -178,7 +205,7 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
 
     coretax_1["FP_STATUS"] = "FP Digunggung"
 
-# 4) Bersihin key + convert angka
+    # 4) Bersihin key + convert angka
     for df in (coretax_1, coretax_2):
         df["NO_VOUCHER"] = df["NO_VOUCHER"].astype(str).str.strip()
         if "DPP" in df.columns:
@@ -197,27 +224,31 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
 
     # Fungsi format angka (hapus koma .0 jika integer biar match)
     def format_amount(val):
-        if pd.isna(val): return "0"
-        val_float = abs(float(val)) # Pakai absolute biar minus/plus tetap ketemu
+        if pd.isna(val):
+            return "0"
+        val_float = abs(float(val))  # Pakai absolute biar minus/plus tetap ketemu
         return f"{int(val_float)}" if val_float.is_integer() else f"{val_float}"
 
     # 2. Modifikasi NO_VOUCHER di Coretax 1 (KANAN)
     is_dup_c1 = coretax_1["NO_VOUCHER"].isin(dup_vouchers_c1)
     if is_dup_c1.any():
         coretax_1.loc[is_dup_c1, "NO_VOUCHER"] = (
-            coretax_1.loc[is_dup_c1, "NO_VOUCHER"] + "/ " + coretax_1.loc[is_dup_c1, "DPP"].apply(format_amount)
+            coretax_1.loc[is_dup_c1, "NO_VOUCHER"]
+            + "/ "
+            + coretax_1.loc[is_dup_c1, "DPP"].apply(format_amount)
         )
 
     # 3. Modifikasi No Faktur (key) di GL K3 (KIRI) AGAR BISA MATCH!
     is_dup_k3 = k3["No Faktur (key)"].isin(dup_vouchers_c1)
     if is_dup_k3.any():
+
         def get_gl_amount(row):
             # Ambil nominal dari GL sesuai rumus Difference kamu
             if str(row.get("Account Name", "")).strip() == "Sales Return":
                 return float(row.get("Debit Amount", 0))
             else:
                 return float(row.get("Nett", 0))
-                
+
         # Terapkan format angka yang sama dan gabungkan ke No Faktur GL
         gl_amounts = k3[is_dup_k3].apply(get_gl_amount, axis=1).apply(format_amount)
         k3.loc[is_dup_k3, "No Faktur (key)"] = (
@@ -226,11 +257,23 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
     # ----------------------------------------------------------------
 
     # 5) Combine Coretax (ambil kolom penting aja)
-    keep_cols_1 = [c for c in ["NO_VOUCHER", "VOUCHER_NO", "DPP", "PPN", "CUSTOMER", "FP_STATUS"] if c in coretax_1.columns]
-    keep_cols_2 = [c for c in ["NO_VOUCHER", "VOUCHER_NO", "DPP", "PPN", "CUSTOMER", "FP_STATUS"] if c in coretax_2.columns]
-    coretax_combined = pd.concat([coretax_1[keep_cols_1], coretax_2[keep_cols_2]], ignore_index=True)
+    keep_cols_1 = [
+        c
+        for c in ["NO_VOUCHER", "VOUCHER_NO", "DPP", "PPN", "CUSTOMER", "FP_STATUS"]
+        if c in coretax_1.columns
+    ]
+    keep_cols_2 = [
+        c
+        for c in ["NO_VOUCHER", "VOUCHER_NO", "DPP", "PPN", "CUSTOMER", "FP_STATUS"]
+        if c in coretax_2.columns
+    ]
+    coretax_combined = pd.concat(
+        [coretax_1[keep_cols_1], coretax_2[keep_cols_2]], ignore_index=True
+    )
 
-    coretax_combined = coretax_combined.drop_duplicates(subset=["NO_VOUCHER"], keep="first")
+    coretax_combined = coretax_combined.drop_duplicates(
+        subset=["NO_VOUCHER"], keep="first"
+    )
 
     # 6) kalau NO_VOUCHER muncul beberapa kali, DPP/PPN dijumlah, CUSTOMER diambil first non-null, status digabung unik
     def join_unique(series):
@@ -241,7 +284,7 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
         "DPP": "sum",
         "PPN": "sum",
         "CUSTOMER": "first",  # Takes first non-null value for CUSTOMER
-        "FP_STATUS": join_unique
+        "FP_STATUS": join_unique,
     }
     if "VOUCHER_NO" in coretax_combined.columns:
         agg_map["VOUCHER_NO"] = "first"
@@ -265,12 +308,16 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
         left_on="No Faktur (key)",
         right_on="NO_VOUCHER",
         how="left",
-        indicator=True
+        indicator=True,
     )
 
-# 11) Compute Difference based on account type
-    merged["Debit Amount"] = pd.to_numeric(merged["Debit Amount"], errors="coerce").fillna(0)
-    merged["Credit Amount"] = pd.to_numeric(merged["Credit Amount"], errors="coerce").fillna(0)
+    # 11) Compute Difference based on account type
+    merged["Debit Amount"] = pd.to_numeric(
+        merged["Debit Amount"], errors="coerce"
+    ).fillna(0)
+    merged["Credit Amount"] = pd.to_numeric(
+        merged["Credit Amount"], errors="coerce"
+    ).fillna(0)
 
     # Apply the Net calculation based on the account type
     merged["Net"] = merged.apply(calculate_net, axis=1)
@@ -289,19 +336,24 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
 
     # Terapkan fungsi ke kolom Difference
     merged["Difference"] = merged.apply(calculate_difference, axis=1)
-    
 
     # 12) Keterangan + Customer (langsung dari kolom kanonik)
     merged["Keterangan (Digunggung/Tidak Digunngung)"] = merged["FP_STATUS"]
-    merged.loc[merged["_merge"] != "both", "Keterangan (Digunggung/Tidak Digunngung)"] = "Tidak ada di Coretax"
+    merged.loc[
+        merged["_merge"] != "both", "Keterangan (Digunggung/Tidak Digunngung)"
+    ] = "Tidak ada di Coretax"
 
     merged["Customer"] = merged["CUSTOMER"]
     merged.loc[merged["_merge"] != "both", "Customer"] = None
 
     # Debugging: Check if 'NO_FP_MODIF' exists in coretax_2
-    print("Cek apakah 'NO_FP_MODIF' ada di coretax_2:", "NO_FP_MODIF" in coretax_2.columns)
+    print(
+        "Cek apakah 'NO_FP_MODIF' ada di coretax_2:", "NO_FP_MODIF" in coretax_2.columns
+    )
     if "NO_FP_MODIF" in coretax_2.columns:
-        print(coretax_2["NO_FP_MODIF"].head())  # Menampilkan beberapa nilai untuk memastikan kolom ada
+        print(
+            coretax_2["NO_FP_MODIF"].head()
+        )  # Menampilkan beberapa nilai untuk memastikan kolom ada
     else:
         print("Kolom 'NO_FP_MODIF' tidak ditemukan di Coretax_2")
 
@@ -315,7 +367,7 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
             left_on="No Faktur (key)",
             right_on="NO_VOUCHER",
             how="left",
-            suffixes=("", "_from_coretax2")
+            suffixes=("", "_from_coretax2"),
         )
         print("Setelah merge NO_FP_MODIF, kolom di merged:", merged.columns)
     else:
@@ -323,32 +375,36 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
 
     # 13) Before filling NaN, convert categorical columns to string type
     for column in merged.columns:
-        if merged[column].dtype.name == 'category':  # Check if the column is categorical
+        if (
+            merged[column].dtype.name == "category"
+        ):  # Check if the column is categorical
             merged[column] = merged[column].astype(str)
     # Now, proceed with other operations
     merged.fillna("-", inplace=True)
 
     # Cek jika file Excel ada
     if not os.path.exists(DRAFT_TEMPLATE_PATH):
-        raise FileNotFoundError("Draft Output.xlsx tidak ditemukan. Taruh file itu 1 folder dengan app.py")
+        raise FileNotFoundError(
+            "Draft Output.xlsx tidak ditemukan. Taruh file itu 1 folder dengan app.py"
+        )
 
     # Load template Excel
     wb = load_workbook(DRAFT_TEMPLATE_PATH)
     ws = wb.active
 
-# --- 14) INISIALISASI TOTAL & VARIABEL (Sebelum Loop) ---
+    # --- 14) INISIALISASI TOTAL & VARIABEL (Sebelum Loop) ---
     debit_total = credit_total = net_total = balance_total = 0
     dpp_total = ppn_total = difference_total = 0
-    
+
     voucher_group_mapping = {}
     current_duplicate_group = 1
     voucher_count = merged["NO_VOUCHER"].value_counts().to_dict()
 
-    template_ws = ws # Sheet pertama (template)
+    template_ws = ws  # Sheet pertama (template)
     current_ws = ws
-    current_row_in_sheet = 0 
+    current_row_in_sheet = 0
     sheet_count = 1
-    start_row = 5 # Data mulai baris 5
+    start_row = 5  # Data mulai baris 5
     max_data_rows_per_sheet = 500000
 
     # Helper: copy header rows (1-4) from template to a new sheet
@@ -365,8 +421,10 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
                     dst_cell.number_format = src_cell.number_format
                     dst_cell.alignment = src_cell.alignment.copy()
 
- # --- 15) SATU LOOP UNTUK SEMUA (TULIS DATA + HITUNG TOTAL) ---
-    processed_coretax = set() # Untuk melacak voucher mana yang sudah muncul data Coretax-nya
+    # --- 15) SATU LOOP UNTUK SEMUA (TULIS DATA + HITUNG TOTAL) ---
+    processed_coretax = (
+        set()
+    )  # Untuk melacak voucher mana yang sudah muncul data Coretax-nya
 
     for i in range(len(merged)):
         # Logika Pindah Sheet (Limit 500.000)
@@ -378,10 +436,10 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
 
         r = start_row + current_row_in_sheet
         row = merged.iloc[i]
-        
+
         v_bal = _parse_id_number(row.get("Balance", 0))
         voucher_no = str(row.get("NO_VOUCHER", "-"))
-        
+
         # --- SISI GL (KIRI): SELALU AMBIL NILAI ASLI (SPLIT) ---
         row_debit = float(row.get("Debit Amount", 0))
         row_credit = float(row.get("Credit Amount", 0))
@@ -395,23 +453,23 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
 
         # --- SISI CORETAX (KANAN): AMBIL YANG ATAS SAJA ---
         is_duplicate = voucher_no != "-" and voucher_count.get(voucher_no, 0) > 1
-        
+
         if voucher_no != "-" and voucher_no not in processed_coretax:
             # INI BARIS PERTAMA (Data Coretax Muncul)
             row_dpp = float(row.get("DPP", 0))
             row_ppn = float(row.get("PPN", 0))
-            
+
             # Hitung Difference berdasarkan TOTAL grup GL vs Data Coretax
             if is_duplicate:
                 v_rows = merged[merged["NO_VOUCHER"] == voucher_no]
                 total_gl_net = v_rows["Net"].sum()
                 total_gl_debit = v_rows["Debit Amount"].sum()
-                
+
                 if row["Account Name"] == "Sales Return":
                     row_diff = total_gl_debit + row_dpp
                 else:
                     row_diff = total_gl_net - row_dpp
-                
+
                 if voucher_no not in voucher_group_mapping:
                     voucher_group_mapping[voucher_no] = current_duplicate_group
                     current_duplicate_group += 1
@@ -423,12 +481,12 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
                 else:
                     row_diff = row_net - row_dpp
                 status = "Unique"
-            
+
             # Tambahkan data Coretax ke subtotal hanya SEKALI
             dpp_total += row_dpp
             ppn_total += row_ppn
             difference_total += row_diff
-            
+
             processed_coretax.add(voucher_no)
         else:
             # INI BARIS LANJUTAN (Sisi Kanan di-nol-kan agar tidak double)
@@ -452,16 +510,18 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
         current_ws.cell(r, 9).value = row_net
         current_ws.cell(r, 10).value = row.get("Direction")
         current_ws.cell(r, 11).value = v_bal
-        
+
         current_ws.cell(r, 13).value = voucher_no
         current_ws.cell(r, 14).value = row.get("NO_FP_MODIF")
         current_ws.cell(r, 15).value = row_dpp
         current_ws.cell(r, 16).value = row_ppn
         current_ws.cell(r, 17).value = row_diff
         current_ws.cell(r, 18).value = row.get("Customer")
-        current_ws.cell(r, 19).value = row.get("Keterangan (Digunggung/Tidak Digunngung)")
+        current_ws.cell(r, 19).value = row.get(
+            "Keterangan (Digunggung/Tidak Digunngung)"
+        )
         current_ws.cell(r, 20).value = status
-        
+
         current_row_in_sheet += 1
 
     # --- 16) CETAK HASIL SUBTOTAL AKHIR (Baris 3 di Sheet Utama) ---
@@ -471,7 +531,7 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
     template_ws.cell(3, 11).value = balance_total
     template_ws.cell(3, 15).value = dpp_total
     template_ws.cell(3, 16).value = ppn_total
-    template_ws.cell(3, 17).value = difference_total 
+    template_ws.cell(3, 17).value = difference_total
 
     # Tambahkan Bold agar rapi
     bold_font = Font(bold=True)
@@ -491,17 +551,17 @@ def compare_files(k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dic
 
     # Dapatkan daftar nama sheet dari workbook yang baru disimpan
     sheet_names = wb.sheetnames
-    
+
     return out_path, out_name, sheet_names
 
 
 def delete_all_uploaded_files(app):
     try:
         # Cek jika direktori upload ada
-        if os.path.exists(app.config['UPLOAD_FOLDER']):
+        if os.path.exists(app.config["UPLOAD_FOLDER"]):
             # Hapus semua file dalam folder upload
-            for filename in os.listdir(app.config['UPLOAD_FOLDER']):
-                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            for filename in os.listdir(app.config["UPLOAD_FOLDER"]):
+                file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
                 if os.path.isfile(file_path):
                     os.remove(file_path)  # Hapus file
                     print(f"Uploaded file deleted: {file_path}")
