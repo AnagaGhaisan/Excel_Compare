@@ -32,7 +32,7 @@ def calculate_row_nett(row):
         "Sales",
         "Sales Price Protection",
     ]:
-        return -debit + credit  # <--- Disamakan agar konsisten
+        return -debit + credit  
 
     elif acc_name in ["POP Expense", "Promotion Gift"]:
         return debit - credit
