@@ -7,6 +7,8 @@ from recap_handler import recap_bp
 import pandas as pd
 from waitress import serve
 import uuid
+# IMPORT FUNGSI DARI FILE LAIN (Pastikan nama file dan fungsi sesuai)
+from ekualisasi_handler import proses_ekualisasi
 
 
 app = Flask(__name__)
@@ -41,12 +43,12 @@ def home():
 
 @app.route("/filecompare")
 def file_compare():
-    return render_template("FileCompare/index.html")
+    return render_template("PPN/FileCompare/index.html")
 
 
 @app.route("/filerecap")
 def file_recap():
-    return render_template("FileRecap/index.html")
+    return render_template("PPN/FileRecap/index.html")
 
 
 @app.route("/upload", methods=["POST"])
@@ -278,6 +280,54 @@ def download_file(filename):
         return send_file(file_path, as_attachment=True)
     else:
         return f"File tidak ditemukan di database {mode}: {file_path}", 404
+    
+ 
+# --- ROUTE FLASK ---
+@app.route('/ekualisasi-pph23', methods=['GET', 'POST'])
+def ekualisasi_pph23_route():
+    if request.method == 'POST':
+        # 1. Validasi keberadaan file di request
+        if 'file_bupot' not in request.files or 'file_voucher' not in request.files:
+            return "File tidak lengkap!", 400
+            
+        file_bupot = request.files['file_bupot']
+        file_voucher = request.files['file_voucher']
+        
+        # 2. Validasi apakah file benar-benar diunggah
+        if file_bupot.filename == '' or file_voucher.filename == '':
+            return "Harap unggah kedua file tersebut!", 400
+            
+        if file_bupot and file_voucher:
+            # 3. Amankan nama file dan tentukan lokasi simpan sementara
+            bupot_filename = secure_filename(file_bupot.filename)
+            voucher_filename = secure_filename(file_voucher.filename)
+            
+            bupot_path = os.path.join(UPLOAD_FOLDER, bupot_filename)
+            voucher_path = os.path.join(UPLOAD_FOLDER, voucher_filename)
+            output_path = os.path.join(UPLOAD_FOLDER, 'Hasil_Ekualisasi_PPH23.xlsx')
+            
+            # 4. Simpan file yang diunggah
+            file_bupot.save(bupot_path)
+            file_voucher.save(voucher_path)
+            
+            try:
+                # 5. EKSEKUSI LOGIC DARI FILE ekualisasi_handler.py
+                proses_ekualisasi(bupot_path, voucher_path, output_path)
+                
+                # 6. Kirim file hasil ke user
+                return send_file(output_path, as_attachment=True, download_name='Hasil_Ekualisasi_PPH23.xlsx')
+            
+            except Exception as e:
+                return f"Terjadi kesalahan saat memproses data: {str(e)}", 500
+            finally:
+                # 7. Bersihkan file sementara agar server tidak penuh
+                if os.path.exists(bupot_path): os.remove(bupot_path)
+                if os.path.exists(voucher_path): os.remove(voucher_path)
+                # Catatan: output_path tidak langsung dihapus di sini agar send_file berhasil, 
+                # Flask akan menanganinya atau Anda bisa menggunakan background task.
+                
+    # Tampilkan antarmuka jika method GET
+    return render_template('ekualisasi_pph23.html')    
 
 
 if __name__ == "__main__":
