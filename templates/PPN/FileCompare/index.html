@@ -41,18 +41,17 @@
                 </a>
                 <hr />
                 <h6 class="offcanvas-title fw-bold mb-1" id="offcanvasNavbarLabel">
-                  DPP Menu
+                  PPN Menu
                 </h6>
               </li>
               <li class="nav-item mb-2">
                 <a class="nav-link" href="{{ url_for('file_compare') }}">
-                  <i class="bi bi-arrow-left-right me-2"></i> AuditFlow
-                  Compare
+                  <i class="bi bi-arrow-left-right me-2"></i> Ekualisasi
                 </a>
               </li>
               <li class="nav-item mb-2">
                 <a class="nav-link" href="{{ url_for('file_recap') }}">
-                  <i class="bi bi-calculator me-2"></i> AuditFlow Recap
+                  <i class="bi bi-calculator me-2"></i> Summary
                 </a>
               </li>
               <hr />
@@ -69,6 +68,15 @@
                   <i class="bi bi-calculator me-2"></i> #
                 </a>
               </li>
+              <hr />
+              <h6 class="offcanvas-title fw-bold mb-1" id="offcanvasNavbarLabel">
+                Lainnya
+              </h6>
+              <li class="nav-item mb-2">
+                <a class="nav-link" href="#">
+                  <i class="bi bi-file-earmark-text me-2"></i> Standard Operation System
+                </a>
+              </li>
             </ul>
           </div>
         </div>
@@ -81,21 +89,44 @@
         <div class="col-md-6 ">
           <h1 class="heading text-start w-100">Upload File For Comparison</h1>
           <p class="text-start mb-3 w-100">Choose and Upload the File that You Will Compare</p>
-          <!-- Form to upload K3 file and Coretax files -->
+
           <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data"
             class="shadow-lg p-3 rounded form-container">
+
             <div class="mb-3">
-              <label for="k3_file" class="form-label file-label">Upload GL File:</label>
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <label for="k3_file" class="form-label file-label mb-0">Upload GL File:</label>
+                <a href="/download-template/gl" class="btn btn-sm btn-outline-primary"
+                  style="font-size: 0.7rem; padding: 2px 8px;">
+                  <i class="bi bi-download"></i> Template
+                </a>
+              </div>
               <input type="file" class="form-control" name="k3_file" id="k3_file" required>
             </div>
+
             <div class="mb-3">
-              <label for="coretax_file_1" class="form-label file-label">Upload Coretax Digunggung File:</label>
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <label for="coretax_file_1" class="form-label file-label mb-0">Upload Coretax Digunggung File:</label>
+                <a href="/download-template/digunggung" class="btn btn-sm btn-outline-primary"
+                  style="font-size: 0.7rem; padding: 2px 8px;">
+                  <i class="bi bi-download"></i> Template
+                </a>
+              </div>
               <input type="file" class="form-control" name="coretax_file_1" id="coretax_file_1" required>
             </div>
+
             <div class="mb-4">
-              <label for="coretax_file_2" class="form-label file-label">Upload Coretax Tidak Digunggung File:</label>
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <label for="coretax_file_2" class="form-label file-label mb-0">Upload Coretax Tidak Digunggung
+                  File:</label>
+                <a href="/download-template/tidak-digunggung" class="btn btn-sm btn-outline-primary"
+                  style="font-size: 0.7rem; padding: 2px 8px;">
+                  <i class="bi bi-download"></i> Template
+                </a>
+              </div>
               <input type="file" class="form-control" name="coretax_file_2" id="coretax_file_2" required>
             </div>
+
             <button type="submit" class="btn btn-success w-100 upload-btn">Upload & Compare</button>
           </form>
         </div>

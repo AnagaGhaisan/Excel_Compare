@@ -40,18 +40,17 @@
                 </a>
                 <hr />
                 <h6 class="offcanvas-title fw-bold mb-1" id="offcanvasNavbarLabel">
-                  DPP Menu
+                  PPN Menu
                 </h6>
               </li>
               <li class="nav-item mb-2">
                 <a class="nav-link" href="{{ url_for('file_compare') }}">
-                  <i class="bi bi-arrow-left-right me-2"></i> AuditFlow
-                  Compare
+                  <i class="bi bi-arrow-left-right me-2"></i> Ekualisasi
                 </a>
               </li>
               <li class="nav-item mb-2">
                 <a class="nav-link" href="{{ url_for('file_recap') }}">
-                  <i class="bi bi-calculator me-2"></i> AuditFlow Recap
+                  <i class="bi bi-calculator me-2"></i> Summary
                 </a>
               </li>
               <hr />
@@ -66,6 +65,15 @@
               <li class="nav-item mb-2">
                 <a class="nav-link" href="#">
                   <i class="bi bi-calculator me-2"></i> #
+                </a>
+              </li>
+              <hr />
+              <h6 class="offcanvas-title fw-bold mb-1" id="offcanvasNavbarLabel">
+                Lainnya
+              </h6>
+              <li class="nav-item mb-2">
+                <a class="nav-link" href="#">
+                  <i class="bi bi-file-earmark-text me-2"></i> Standard Operation System
                 </a>
               </li>
             </ul>
@@ -89,12 +97,20 @@
             class="shadow-lg p-4 rounded form-container">
 
             <div class="mb-3">
-              <label for="k3_file" class="form-label file-label fw-bold">Upload File Draft (GL):</label>
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <label for="k3_file" class="form-label file-label fw-bold mb-0">Upload File Draft (GL):</label>
+              </div>
               <input type="file" class="form-control" name="k3_file" id="k3_file" required>
             </div>
 
             <div class="mb-4">
-              <label for="ppn_file" class="form-label file-label fw-bold">Upload Rekap PPN:</label>
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <label for="ppn_file" class="form-label file-label fw-bold mb-0">Upload Rekap PPN:</label>
+                <a href="/download-template/ppn-recap" class="btn btn-sm btn-outline-primary"
+                  style="font-size: 0.7rem; padding: 2px 8px;">
+                  <i class="bi bi-download"></i> Template
+                </a>
+              </div>
               <input type="file" class="form-control" name="ppn_file" id="ppn_file" required>
             </div>
 

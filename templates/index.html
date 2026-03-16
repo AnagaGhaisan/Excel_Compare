@@ -79,18 +79,17 @@
                 </a>
                 <hr />
                 <h6 class="offcanvas-title fw-bold mb-1" id="offcanvasNavbarLabel">
-                  DPP Menu
+                  PPN Menu
                 </h6>
               </li>
               <li class="nav-item mb-2">
                 <a class="nav-link" href="{{ url_for('file_compare') }}">
-                  <i class="bi bi-arrow-left-right me-2"></i> AuditFlow
-                  Compare
+                  <i class="bi bi-arrow-left-right me-2"></i> Ekualisasi
                 </a>
               </li>
               <li class="nav-item mb-2">
                 <a class="nav-link" href="{{ url_for('file_recap') }}">
-                  <i class="bi bi-calculator me-2"></i> AuditFlow Recap
+                  <i class="bi bi-calculator me-2"></i> Summary
                 </a>
               </li>
               <hr />
@@ -105,6 +104,15 @@
               <li class="nav-item mb-2">
                 <a class="nav-link" href="#">
                   <i class="bi bi-calculator me-2"></i> #
+                </a>
+              </li>
+              <hr />
+              <h6 class="offcanvas-title fw-bold mb-1" id="offcanvasNavbarLabel">
+                Lainnya
+              </h6>
+              <li class="nav-item mb-2">
+                <a class="nav-link" href="#">
+                  <i class="bi bi-file-earmark-text me-2"></i> Standard Operation System
                 </a>
               </li>
             </ul>
@@ -130,7 +138,7 @@
                 <div class="mb-4">
                   <img src="{{ url_for('static', filename='images/Logo_Fk.png') }}" alt="Logo" width="60" />
                 </div>
-                <h3 class="fw-bold mb-3">DPP</h3>
+                <h3 class="fw-bold mb-3">PPN</h3>
                 <p class="text-muted mb-4">
                   Analyze data differences between files instantly.
                 </p>
@@ -143,8 +151,8 @@
             <div class="card landing-card p-4 shadow-sm w-100 border-0" role="button" data-bs-toggle="modal"
               data-bs-target="#modalRecap">
               <div class="card-body text-center">
-                <div class="mb-3">
-                  <img src="#" alt="Logo" width="60" />
+                <div class="mb-4">
+                  <img src="{{ url_for('static', filename='images/Logo_P.png') }}" alt="Logo" width="60" />
                 </div>
                 <h3 class="fw-bold mb-3">PPH23</h3>
                 <p class="text-muted mb-4">
@@ -173,7 +181,7 @@
                     <div class="mb-4">
                       <img src="{{ url_for('static', filename='images/Logo_2.png') }}" alt="Logo" width="50" />
                     </div>
-                    <h5 class="fw-bold">File Compare</h5>
+                    <h5 class="fw-bold">Ekualisasi</h5>
                     <p class="small text-muted">
                       Upload and analyze differences between your data files
                       instantly.
@@ -188,7 +196,7 @@
                     <div class="mb-4">
                       <img src="{{ url_for('static', filename='images/Logo_4.png') }}" alt="Logo" width="45" />
                     </div>
-                    <h5 class="fw-bold">File Recap</h5>
+                    <h5 class="fw-bold">Summary</h5>
                     <p class="small text-muted">
                       View comprehensive summaries and historical recaps of
                       processed files.
@@ -219,7 +227,7 @@
                     <p class="small text-muted">
                       #
                     </p>
-                    <a href="#" class="btn btn-outline-primary btn-sm w-100">Choose</a>
+                    <a href="{{ url_for('ekualisasi_pph23_route') }}" class="btn btn-outline-primary btn-sm w-100">Choose</a>
                   </div>
                 </div>
               </div>
@@ -230,7 +238,7 @@
                     <p class="small text-muted">
                       #
                     </p>
-                    <a href="#" class="btn btn-outline-info btn-sm w-100">Pilih</a>
+                    <a href="#" class="btn btn-outline-info btn-sm w-100">Choose</a>
                   </div>
                 </div>
               </div>

@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, send_file, redirect, url_for
+from flask import Flask, request, render_template, send_file, redirect, url_for, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
@@ -49,6 +49,29 @@ def file_compare():
 @app.route("/filerecap")
 def file_recap():
     return render_template("PPN/FileRecap/index.html")
+
+@app.route('/download-template/<template_type>')
+def download_template(template_type):
+    # Mapping parameter ke nama file asli di folder static/excel_template
+    templates = {
+        "gl": "Gl Template.xlsx",
+        "digunggung": "Digungung Template.xlsx",
+        "tidak-digunggung": "Tidak Digungung Template.xlsx",
+        "ppn-recap": "Rekap_PPN.xlsx"
+    }
+    
+    filename = templates.get(template_type)
+    if not filename:
+        return "Template tidak ditemukan", 404
+        
+    # Pastikan folder name sesuai: static/excel_template
+    template_dir = os.path.join(app.root_path, 'static', 'excel_template')
+    
+    # Memastikan file benar-benar ada sebelum dikirim
+    if not os.path.exists(os.path.join(template_dir, filename)):
+        return f"File {filename} tidak ditemukan di folder static/excel_template", 404
+    
+    return send_from_directory(template_dir, filename, as_attachment=True)
 
 
 @app.route("/upload", methods=["POST"])
@@ -282,57 +305,66 @@ def download_file(filename):
         return f"File tidak ditemukan di database {mode}: {file_path}", 404
     
  
-# --- ROUTE FLASK ---
+# --- ROUTE FLASK PPH 23 ---
 @app.route('/ekualisasi-pph23', methods=['GET', 'POST'])
 def ekualisasi_pph23_route():
     if request.method == 'POST':
-        # 1. Validasi keberadaan file di request
+        # 1. Cek ketersediaan file
         if 'file_bupot' not in request.files or 'file_voucher' not in request.files:
-            return "File tidak lengkap!", 400
+            return "No file part", 400
             
         file_bupot = request.files['file_bupot']
         file_voucher = request.files['file_voucher']
         
-        # 2. Validasi apakah file benar-benar diunggah
+        # 2. Cek apakah file kosong
         if file_bupot.filename == '' or file_voucher.filename == '':
-            return "Harap unggah kedua file tersebut!", 400
+            return "No selected file", 400
             
-        if file_bupot and file_voucher:
-            # 3. Amankan nama file dan tentukan lokasi simpan sementara
-            bupot_filename = secure_filename(file_bupot.filename)
-            voucher_filename = secure_filename(file_voucher.filename)
+        # 3. Validasi ekstensi dengan fungsi allowed_file dari helpers.py
+        if (
+            file_bupot and allowed_file(file_bupot.filename, app.config["ALLOWED_EXTENSIONS"]) and
+            file_voucher and allowed_file(file_voucher.filename, app.config["ALLOWED_EXTENSIONS"])
+        ):
+            # 4. Buat Unique ID seperti PPN
+            unique_id = str(uuid.uuid4())[:8]
             
-            bupot_path = os.path.join(UPLOAD_FOLDER, bupot_filename)
-            voucher_path = os.path.join(UPLOAD_FOLDER, voucher_filename)
-            output_path = os.path.join(UPLOAD_FOLDER, 'Hasil_Ekualisasi_PPH23.xlsx')
+            bupot_filename = f"{unique_id}_{secure_filename(file_bupot.filename)}"
+            voucher_filename = f"{unique_id}_{secure_filename(file_voucher.filename)}"
             
-            # 4. Simpan file yang diunggah
+            bupot_path = os.path.join(app.config["UPLOAD_FOLDER"], bupot_filename)
+            voucher_path = os.path.join(app.config["UPLOAD_FOLDER"], voucher_filename)
+            
+            # 5. Path output & template
+            output_filename = f"Hasil_Ekualisasi_PPH23_{unique_id}.xlsx"
+            output_path = os.path.join(app.config["OUTPUT_COMPARE_FOLDER"], output_filename)
+            template_path = os.path.join(BASE_DIR, "static", "template", "Format Output.xlsx")
+            
+            # 6. Simpan file fisik ke server
             file_bupot.save(bupot_path)
             file_voucher.save(voucher_path)
             
             try:
-                # 5. EKSEKUSI LOGIC DARI FILE ekualisasi_handler.py
-                proses_ekualisasi(bupot_path, voucher_path, output_path)
+                # 7. Jalankan pemrosesan
+                proses_ekualisasi(bupot_path, voucher_path, template_path, output_path)
                 
-                # 6. Kirim file hasil ke user
+                # 8. Hapus file sementara di folder uploads (seperti PPN)
+                delete_all_uploaded_files(app)
+                
+                # 9. Kembalikan file hasil
                 return send_file(output_path, as_attachment=True, download_name='Hasil_Ekualisasi_PPH23.xlsx')
             
             except Exception as e:
+                print(f"Error Ekualisasi PPH23: {e}")
                 return f"Terjadi kesalahan saat memproses data: {str(e)}", 500
-            finally:
-                # 7. Bersihkan file sementara agar server tidak penuh
-                if os.path.exists(bupot_path): os.remove(bupot_path)
-                if os.path.exists(voucher_path): os.remove(voucher_path)
-                # Catatan: output_path tidak langsung dihapus di sini agar send_file berhasil, 
-                # Flask akan menanganinya atau Anda bisa menggunakan background task.
+                
+        return "Invalid file type", 400
                 
     # Tampilkan antarmuka jika method GET
-    return render_template('ekualisasi_pph23.html')    
-
+    return render_template('PPH/index.html')
 
 if __name__ == "__main__":
     # Ubah 'True' menjadi 'False' jika ingin pindah ke mode production
-    DEBUG_MODE = True
+    DEBUG_MODE = False
 
     if DEBUG_MODE:
         print("Running in DEBUG mode...")
