@@ -111,9 +111,10 @@
                 Lainnya
               </h6>
               <li class="nav-item mb-2">
-                <a class="nav-link" href="#">
+                <a class="nav-link" href="{{ url_for('static', filename='pdf/Standard Operating Procedure.pdf') }}" target="_blank">
                   <i class="bi bi-file-earmark-text me-2"></i> Standard Operation System
                 </a>
+              </li>
               </li>
             </ul>
           </div>
@@ -227,7 +228,8 @@
                     <p class="small text-muted">
                       #
                     </p>
-                    <a href="{{ url_for('ekualisasi_pph23_route') }}" class="btn btn-outline-primary btn-sm w-100">Choose</a>
+                    <a href="{{ url_for('ekualisasi_pph23_route') }}"
+                      class="btn btn-outline-primary btn-sm w-100">Choose</a>
                   </div>
                 </div>
               </div>
