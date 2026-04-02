@@ -364,7 +364,7 @@ def ekualisasi_pph23_route():
 
 if __name__ == "__main__":
     # Ubah 'True' menjadi 'False' jika ingin pindah ke mode production
-    DEBUG_MODE = False
+    DEBUG_MODE = True
 
     if DEBUG_MODE:
         print("Running in DEBUG mode...")

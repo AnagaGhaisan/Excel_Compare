@@ -1,11 +1,13 @@
 import os
 import re
+import math
 import openpyxl
 import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
 from datetime import datetime
 from openpyxl.styles import Font
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 # File paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -327,12 +329,9 @@ def compare_files(
 
     # Logika baru untuk menghitung Difference
     def calculate_difference(row):
-        # Jika akun adalah Sales Return, gunakan rumus Debit + DPP
-        if row["Account Name"] == "Sales Return":
-            return row["Debit Amount"] + row["DPP"]
-        # Untuk akun lainnya, gunakan rumus standar Net - DPP
-        else:
-            return row["Net"] - row["DPP"]
+        return float(row["Net"]) - float(
+            row["DPP"]
+        )  # Menggunakan float, tanpa pembulatan
 
     # Terapkan fungsi ke kolom Difference
     merged["Difference"] = merged.apply(calculate_difference, axis=1)
@@ -361,9 +360,13 @@ def compare_files(
 
     # Jika kolom 'NO_FP_MODIF' ada di coretax_2, tambahkan ke merged
     if "NO_FP_MODIF" in coretax_2.columns:
+        # PENTING: Drop duplicate agar tidak terjadi ledakan data (Cartesian product) saat merge
+        coretax_2_unique = coretax_2[["NO_VOUCHER", "NO_FP_MODIF"]].drop_duplicates(
+            subset=["NO_VOUCHER"]
+        )
         merged = pd.merge(
             merged,
-            coretax_2[["NO_VOUCHER", "NO_FP_MODIF"]],
+            coretax_2_unique,
             left_on="No Faktur (key)",
             right_on="NO_VOUCHER",
             how="left",
@@ -379,8 +382,10 @@ def compare_files(
             merged[column].dtype.name == "category"
         ):  # Check if the column is categorical
             merged[column] = merged[column].astype(str)
+    # Ensure column headers are strings
+    merged.columns = merged.columns.astype(str)
     # Now, proceed with other operations
-    merged.fillna("-", inplace=True)
+    merged = merged.astype(str).fillna("-")
 
     # Cek jika file Excel ada
     if not os.path.exists(DRAFT_TEMPLATE_PATH):
@@ -396,16 +401,9 @@ def compare_files(
     debit_total = credit_total = net_total = balance_total = 0
     dpp_total = ppn_total = difference_total = 0
 
-    voucher_group_mapping = {}
-    current_duplicate_group = 1
-    voucher_count = merged["NO_VOUCHER"].value_counts().to_dict()
-
     template_ws = ws  # Sheet pertama (template)
-    current_ws = ws
-    current_row_in_sheet = 0
-    sheet_count = 1
     start_row = 5  # Data mulai baris 5
-    max_data_rows_per_sheet = 500000
+    MAX_ROWS_PER_SHEET = 500_000
 
     # Helper: copy header rows (1-4) from template to a new sheet
     def _copy_header_rows(src_ws, dst_ws, up_to_row=4):
@@ -421,124 +419,256 @@ def compare_files(
                     dst_cell.number_format = src_cell.number_format
                     dst_cell.alignment = src_cell.alignment.copy()
 
-    # --- 15) SATU LOOP UNTUK SEMUA (TULIS DATA + HITUNG TOTAL) ---
-    processed_coretax = (
-        set()
-    )  # Untuk melacak voucher mana yang sudah muncul data Coretax-nya
+    def _sanitize_sheet_name(name: str) -> str:
+        """Bersihkan nama sheet Excel (max 31 karakter, tanpa karakter terlarang)."""
+        for ch in ['[', ']', ':', '*', '?', '/', '\\']:
+            name = name.replace(ch, '_')
+        return name.strip()[:31]
 
-    for i in range(len(merged)):
-        # Logika Pindah Sheet (Limit 500.000)
-        if current_row_in_sheet >= max_data_rows_per_sheet:
-            sheet_count += 1
-            current_ws = wb.create_sheet(title=f"Sheet{sheet_count}")
-            _copy_header_rows(template_ws, current_ws)
-            current_row_in_sheet = 0
+    # --- PERBAIKAN: PRE-CALCULATE DATA UNTUK MENCEGAH LOOPING LAMBAT ---
+    print("Menyiapkan dictionary untuk mempercepat proses perhitungan...")
 
-        r = start_row + current_row_in_sheet
-        row = merged.iloc[i]
+    # 1. Jadikan Set agar pencarian 'in' berjalan sekejap mata
+    coretax_voucher_set = set(coretax_agg["NO_VOUCHER"].dropna().astype(str))
 
-        v_bal = _parse_id_number(row.get("Balance", 0))
-        voucher_no = str(row.get("NO_VOUCHER", "-"))
+    # 2. Hitung total Net dan Debit dari awal, jangan hitung di dalam loop
+    merged["Net_Numeric"] = pd.to_numeric(merged["Net"], errors="coerce").fillna(0)
+    merged["Debit_Numeric"] = pd.to_numeric(
+        merged["Debit Amount"], errors="coerce"
+    ).fillna(0)
 
-        # --- SISI GL (KIRI): SELALU AMBIL NILAI ASLI (SPLIT) ---
-        row_debit = float(row.get("Debit Amount", 0))
-        row_credit = float(row.get("Credit Amount", 0))
-        row_net = float(row.get("Net", 0))
-
-        # Selalu tambahkan data GL ke subtotal (karena data split)
-        debit_total += row_debit
-        credit_total += row_credit
-        net_total += row_net
-        balance_total += v_bal
-
-        # --- SISI CORETAX (KANAN): AMBIL YANG ATAS SAJA ---
-        is_duplicate = voucher_no != "-" and voucher_count.get(voucher_no, 0) > 1
-
-        if voucher_no != "-" and voucher_no not in processed_coretax:
-            # INI BARIS PERTAMA (Data Coretax Muncul)
-            row_dpp = float(row.get("DPP", 0))
-            row_ppn = float(row.get("PPN", 0))
-
-            # Hitung Difference berdasarkan TOTAL grup GL vs Data Coretax
-            if is_duplicate:
-                v_rows = merged[merged["NO_VOUCHER"] == voucher_no]
-                total_gl_net = v_rows["Net"].sum()
-                total_gl_debit = v_rows["Debit Amount"].sum()
-
-                if row["Account Name"] == "Sales Return":
-                    row_diff = total_gl_debit + row_dpp
-                else:
-                    row_diff = total_gl_net - row_dpp
-
-                if voucher_no not in voucher_group_mapping:
-                    voucher_group_mapping[voucher_no] = current_duplicate_group
-                    current_duplicate_group += 1
-                status = f"Duplicate {voucher_group_mapping[voucher_no]}"
-            else:
-                # Unique
-                if row["Account Name"] == "Sales Return":
-                    row_diff = row_debit + row_dpp
-                else:
-                    row_diff = row_net - row_dpp
-                status = "Unique"
-
-            # Tambahkan data Coretax ke subtotal hanya SEKALI
-            dpp_total += row_dpp
-            ppn_total += row_ppn
-            difference_total += row_diff
-
-            processed_coretax.add(voucher_no)
-        else:
-            # INI BARIS LANJUTAN (Sisi Kanan di-nol-kan agar tidak double)
-            row_dpp = 0
-            row_ppn = 0
-            row_diff = 0
-            if is_duplicate:
-                status = f"Duplicate {voucher_group_mapping[voucher_no]}"
-            else:
-                status = "Unique"
-
-        # --- PROSES CETAK KE SHEET ---
-        current_ws.cell(r, 1).value = row.get("Account No.")
-        current_ws.cell(r, 2).value = row.get("Account Name")
-        current_ws.cell(r, 3).value = row.get("Date")
-        current_ws.cell(r, 4).value = row.get("Voucher Category")
-        current_ws.cell(r, 5).value = row.get("Voucher No.")
-        current_ws.cell(r, 6).value = row.get("Description")
-        current_ws.cell(r, 7).value = row_debit
-        current_ws.cell(r, 8).value = row_credit
-        current_ws.cell(r, 9).value = row_net
-        current_ws.cell(r, 10).value = row.get("Direction")
-        current_ws.cell(r, 11).value = v_bal
-
-        current_ws.cell(r, 13).value = voucher_no
-        current_ws.cell(r, 14).value = row.get("NO_FP_MODIF")
-        current_ws.cell(r, 15).value = row_dpp
-        current_ws.cell(r, 16).value = row_ppn
-        current_ws.cell(r, 17).value = row_diff
-        current_ws.cell(r, 18).value = row.get("Customer")
-        current_ws.cell(r, 19).value = row.get(
-            "Keterangan (Digunggung/Tidak Digunngung)"
+    grouped_totals = (
+        merged.groupby("NO_VOUCHER")
+        .agg(
+            total_gl_net=("Net_Numeric", "sum"), total_gl_debit=("Debit_Numeric", "sum")
         )
-        current_ws.cell(r, 20).value = status
+        .to_dict("index")
+    )
+    # -------------------------------------------------------------------
 
-        current_row_in_sheet += 1
+    # --- 15) TULIS DATA PER AKUN (PISAH SHEET, SPLIT >500K BARIS) ---
+    processed_coretax = set()  # Untuk melacak voucher mana yang sudah muncul data Coretax-nya
+    sheet_row_counts = {}
+    first_sheet = True
 
-    # --- 16) CETAK HASIL SUBTOTAL AKHIR (Baris 3 di Sheet Utama) ---
-    template_ws.cell(3, 7).value = debit_total
-    template_ws.cell(3, 8).value = credit_total
-    template_ws.cell(3, 9).value = net_total
-    template_ws.cell(3, 11).value = balance_total
-    template_ws.cell(3, 15).value = dpp_total
-    template_ws.cell(3, 16).value = ppn_total
-    template_ws.cell(3, 17).value = difference_total
+    # Group by Account Name, pertahankan urutan kemunculan
+    account_groups = merged.groupby("Account Name", sort=False)
 
-    # Tambahkan Bold agar rapi
+    for account_name, group_df in account_groups:
+        group_df = group_df.reset_index(drop=True)
+        total_rows = len(group_df)
+        n_chunks = max(1, math.ceil(total_rows / MAX_ROWS_PER_SHEET))
+        safe_name = _sanitize_sheet_name(str(account_name))
+
+        for chunk_idx in range(n_chunks):
+            chunk_start = chunk_idx * MAX_ROWS_PER_SHEET
+            chunk_end = min(chunk_start + MAX_ROWS_PER_SHEET, total_rows)
+            chunk_df = group_df.iloc[chunk_start:chunk_end]
+
+            # Tentukan nama sheet
+            if n_chunks == 1:
+                sheet_title = safe_name
+            else:
+                suffix = f"_{chunk_idx + 1}"
+                sheet_title = safe_name[: 31 - len(suffix)] + suffix
+
+            # Buat / ambil worksheet
+            if first_sheet:
+                current_ws = template_ws
+                current_ws.title = sheet_title
+                first_sheet = False
+            else:
+                current_ws = wb.create_sheet(title=sheet_title)
+                _copy_header_rows(template_ws, current_ws)
+
+            sheet_row_counts[current_ws.title] = 0
+
+            for local_i in range(len(chunk_df)):
+                r = start_row + local_i
+                row = chunk_df.iloc[local_i]
+
+                v_bal = _parse_id_number(row.get("Balance", 0))
+
+                # --- PERBAIKAN: Bersihkan NaN agar tidak dianggap teks "nan" ---
+                voucher_no = str(row.get("NO_VOUCHER", "-")).strip()
+                if voucher_no.lower() in ["nan", "none", "", "-"]:
+                    voucher_no = "-"
+
+                # --- SISI GL (KIRI): TETAP FLOAT (MENYIMPAN KOMA) ---
+                row_debit = float(row.get("Debit Amount", 0))
+                row_credit = float(row.get("Credit Amount", 0))
+                row_net = float(row.get("Net", 0))
+
+                # Selalu tambahkan data GL ke subtotal
+                debit_total += row_debit
+                credit_total += row_credit
+                net_total += row_net
+                balance_total += v_bal
+
+                # Cek apakah voucher valid ini ada di Coretax
+                voucher_no_in_coretax = (voucher_no != "-") and (
+                    voucher_no in coretax_voucher_set
+                )
+
+                # --- LOGIKA PENENTUAN STATUS & DIFFERENCE ---
+                if voucher_no == "-":
+                    # KONDISI 1: DATA KOSONG / TIDAK ADA FAKTUR
+                    row_dpp = 0.0
+                    row_ppn = 0.0
+
+                    if row["Account Name"] == "Sales Return":
+                        row_diff = -(float(row_debit) + row_dpp)
+                    else:
+                        row_diff = float(row_net)
+
+                    status = "Tidak ada di Coretax"
+                    difference_total += row_diff
+
+                elif voucher_no not in processed_coretax:
+                    # KONDISI 2: BARIS PERTAMA DARI JURNAL YANG MATCH
+                    row_dpp = float(row.get("DPP", 0))
+                    row_ppn = float(row.get("PPN", 0))
+
+                    if voucher_no_in_coretax:
+                        totals = grouped_totals.get(voucher_no, {})
+                        total_gl_net = float(totals.get("total_gl_net", 0))
+                        total_gl_debit = float(totals.get("total_gl_debit", 0))
+
+                        if row["Account Name"] == "Sales Return":
+                            row_diff = -(float(total_gl_debit) + row_dpp)
+                        elif row["Account Name"] == "Repair Service Income":
+                            row_diff = float(total_gl_net) - row_dpp
+                        elif row["Account Name"] == "Sales Price Protection":
+                            row_diff = float(total_gl_net) - row_dpp
+                        elif row["Account Name"] == "Sales":
+                            row_diff = float(total_gl_net) - row_dpp
+                        else:
+                            if total_gl_net == 0:
+                                row_diff = float(row_net - row_dpp)
+                            else:
+                                row_diff = float(total_gl_net - row_dpp)
+
+                        status = "Unique"
+                    else:
+                        if row["Account Name"] == "Sales Return":
+                            row_diff = -(float(row_debit) + row_dpp)
+                        elif row["Account Name"] == "Repair Service Income":
+                            row_diff = float(row_net) - row_dpp
+                        elif row["Account Name"] == "Sales Price Protection":
+                            row_diff = float(row_net) - row_dpp
+                        elif row["Account Name"] == "Sales":
+                            row_diff = float(row_net) - row_dpp
+                        else:
+                            row_diff = float(row_net)
+                        status = "Tidak ada di Coretax"
+
+                    # Tambahkan data Coretax ke subtotal HANYA SEKALI
+                    dpp_total += row_dpp
+                    ppn_total += row_ppn
+                    difference_total += row_diff
+                    processed_coretax.add(voucher_no)
+
+                else:
+                    # KONDISI 3: BARIS LANJUTAN (PECAHAN JURNAL)
+                    row_dpp = 0.0
+                    row_ppn = 0.0
+                    row_diff = 0
+
+                    if voucher_no_in_coretax:
+                        status = "Unique"
+                    else:
+                        status = "Tidak ada di Coretax"
+
+                # --- PROSES CETAK KE SHEET ---
+                current_ws.cell(r, 1).value = row.get("Account No.")
+                current_ws.cell(r, 2).value = row.get("Account Name")
+                current_ws.cell(r, 3).value = row.get("Date")
+                current_ws.cell(r, 4).value = row.get("Voucher Category")
+                current_ws.cell(r, 5).value = row.get("Voucher No.")
+                current_ws.cell(r, 6).value = row.get("Description")
+                current_ws.cell(r, 7).value = row_debit
+                current_ws.cell(r, 8).value = row_credit
+                current_ws.cell(r, 9).value = row_net
+                current_ws.cell(r, 10).value = row.get("Direction")
+                current_ws.cell(r, 11).value = v_bal
+
+                current_ws.cell(r, 13).value = voucher_no if voucher_no != "-" else None
+                current_ws.cell(r, 14).value = (
+                    row.get("NO_FP_MODIF")
+                    if str(row.get("NO_FP_MODIF")) not in ["nan", "None"]
+                    else None
+                )
+                current_ws.cell(r, 15).value = row_dpp
+                current_ws.cell(r, 16).value = row_ppn
+                current_ws.cell(r, 17).value = row_diff
+                current_ws.cell(r, 18).value = (
+                    row.get("Customer")
+                    if str(row.get("Customer")) not in ["nan", "None"]
+                    else None
+                )
+                current_ws.cell(r, 19).value = row.get(
+                    "Keterangan (Digunggung/Tidak Digunngung)"
+                )
+                current_ws.cell(r, 20).value = status
+
+                sheet_row_counts[current_ws.title] += 1
+
+        print(f"Akun '{account_name}': {total_rows} baris -> {n_chunks} sheet")
+
+    # --- 16) CETAK HASIL SUBTOTAL DINAMIS (Mengikuti Filter) ---
+    # Mapping kolom: 7=G, 8=H, 9=I, 11=K, 15=O, 16=P, 17=Q
+    # SUBTOTAL(109, ...) menjumlahkan baris yang terlihat (mengikuti filter & hidden rows).
+    col_letter_map = {7: "G", 8: "H", 9: "I", 11: "K", 15: "O", 16: "P", 17: "Q"}
+
     bold_font = Font(bold=True)
-    for col in [7, 8, 9, 11, 15, 16, 17]:
-        template_ws.cell(3, col).font = bold_font
 
-    print(f"Selesai! Data ditulis ke {sheet_count} sheet. Total baris: {len(merged)}")
+    # Terapkan formula subtotal ke setiap sheet, mengikuti jumlah data pada sheet tersebut
+    for ws_name, row_count in sheet_row_counts.items():
+        target_ws = wb[ws_name]
+        if row_count <= 0:
+            # Tidak ada data pada sheet ini
+            for col_idx in col_letter_map:
+                cell = target_ws.cell(3, col_idx)
+                cell.value = 0
+                cell.font = bold_font
+            continue
+
+        last_row = start_row + row_count - 1
+        for col_idx, col_letter in col_letter_map.items():
+            cell = target_ws.cell(3, col_idx)
+            cell.value = (
+                f"=SUBTOTAL(109, {col_letter}{start_row}:{col_letter}{last_row})"
+            )
+            cell.font = bold_font
+
+    # --- 17) FORMAT RANGE JADI EXCEL TABLE DI TIAP SHEET ---
+    header_row = 4
+    first_col = "A"
+    last_col = "T"
+    table_style = TableStyleInfo(
+        name="TableStyleLight1",
+        showFirstColumn=False,
+        showLastColumn=False,
+        showRowStripes=True,
+        showColumnStripes=False,
+    )
+
+    table_idx = 1
+    for ws_name, row_count in sheet_row_counts.items():
+        if row_count <= 0:
+            continue
+
+        target_ws = wb[ws_name]
+        last_data_row = start_row + row_count - 1
+        table_ref = f"{first_col}{header_row}:{last_col}{last_data_row}"
+        table_name = f"DataTable{table_idx}"
+        table_idx += 1
+
+        tab = Table(displayName=table_name, ref=table_ref)
+        tab.tableStyleInfo = table_style
+        target_ws.add_table(tab)
+
+    print(f"Selesai! Data ditulis ke {len(sheet_row_counts)} sheet. Total baris: {len(merged)}")
 
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)

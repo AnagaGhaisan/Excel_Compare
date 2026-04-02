@@ -109,6 +109,9 @@ def proses_ekualisasi(file_bupot, file_voucher, file_template, file_output):
     # =========================
     # 6. AGGREGATE VOUCHER
     # =========================
+    df_bupot.rename(columns={"Area": "Area_Bupot"}, inplace=True)
+    df_voucher.rename(columns={"Area": "Area_GL"}, inplace=True)
+
     agg_dict = {
         col_dpp_gl: 'sum',
         col_pph_gl: 'sum',
@@ -118,8 +121,10 @@ def proses_ekualisasi(file_bupot, file_voucher, file_template, file_output):
 
     if 'Nama PT' in df_voucher.columns:
         agg_dict['Nama PT'] = 'first'
-    if 'Area' in df_voucher.columns:
-        agg_dict['Area'] = 'first'
+    
+    # Gunakan nama baru 'Area_GL' di sini
+    if 'Area_GL' in df_voucher.columns:
+        agg_dict['Area_GL'] = 'first'
 
     df_voucher_agg = df_voucher.groupby('No. SPF', as_index=False).agg(agg_dict)
 
