@@ -25,29 +25,48 @@ def extract_no_faktur_from_description(desc: str, voucher_cat: str) -> str | Non
     s = str(desc).strip()
     parts = [p.strip() for p in s.split("/")]
 
+    # 1. CARI VOUCHER MENGGUNAKAN REGEX PINTAR
+    voucher_part = None
+    for p in parts:
+        # (?i) = Kebal terhadap huruf besar/kecil
+        if re.search(r'(?i)(?:[A-Z]{2,5}-\d+[A-Z0-9_-]*|[A-Z]{2,5}\d+-[A-Z0-9_-]+|[A-Z]{2,5}\d{5,})', p):
+            voucher_part = p
+            break
+
+    # 2. LOGIKA FALLBACK (Jika formatnya sangat aneh sehingga regex gagal)
+    if not voucher_part:
+        if str(voucher_cat).strip() == "GL-JV":
+            voucher_part = parts if len(parts) >= 1 else None
+        else:
+            voucher_part = parts if len(parts) >= 2 else (parts if parts else None)
+            
+    # 3. KEMBALIKAN JIKA KATEGORI GL-JV
     if str(voucher_cat).strip() == "GL-JV":
-        return parts[0] if len(parts) >= 1 and parts[0] else None
+        return voucher_part
 
-    # --- LOGIKA KHUSUS DIGUNGGUNG: Deteksi Nominal di K3 ---
-    if len(parts) >= 3:
-        try:
-            # Coba baca bagian ke-3 (nominal)
-            clean_num = parts[2].replace(" ", "")
-            v = float(clean_num)  # Bisa tembus jika desimal pakai titik
-            formatted_num = f"{int(v)}" if v.is_integer() else f"{v}"
-            return f"{parts[1]}/ {formatted_num}"
-        except ValueError:
+# --- 4. LOGIKA KHUSUS DIGUNGGUNG: Deteksi Nominal di K3 ---
+    if len(parts) >= 3 and voucher_part:
+        # HARUS pakai parts karena kita mau membersihkan nominal uangnya, BUKAN vouchernya
+        clean_num = parts[2].replace(" ", "").replace(",", "").replace(".", "")
+
+        # PERBAIKAN PAMUNGKAS: 
+        # 1. Tidak boleh diawali nol (Mencegah Nomor HP)
+        # 2. Panjang angka minimal 4 digit (Mencegah ID Toko/Area seperti "318" ikut tergabung)
+        if clean_num.isdigit() and not clean_num.startswith("0") and len(clean_num) > 4:  # <--- UBAH JADI > 4
             try:
-                # Coba baca pakai parser Indo jika desimal pakai koma/titik ribuan
-                v = _parse_id_number(parts[2])
-                if pd.notna(v):
-                    formatted_num = f"{int(v)}" if float(v).is_integer() else f"{v}"
-                    return f"{parts[1]}/ {formatted_num}"
-            except:
-                pass
+                v = float(clean_num)
+                formatted_num = f"{int(v)}" if v.is_integer() else f"{v}"
+                return f"{voucher_part}/ {formatted_num}"
+            except ValueError:
+                try:
+                    v = _parse_id_number(parts)
+                    if pd.notna(v):
+                        formatted_num = f"{int(v)}" if float(v).is_integer() else f"{v}"
+                        return f"{voucher_part}/ {formatted_num}"
+                except:
+                    pass
 
-    return parts[1] if len(parts) >= 2 and parts[1] else None
-
+    return voucher_part
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
