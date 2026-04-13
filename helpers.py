@@ -530,21 +530,27 @@ def compare_files(
                 )
 
                 # --- LOGIKA PENENTUAN STATUS & DIFFERENCE ---
+                row_diff_formula = "" # Variabel untuk menampung rumus Excel dinamis
+
                 if voucher_no == "-":
-                    # KONDISI 1: DATA KOSONG / TIDAK ADA FAKTUR
+                    # KONDISI 1: DATA KOSONG
                     row_dpp = 0.0
                     row_ppn = 0.0
 
                     if row["Account Name"] == "Sales Return":
                         row_diff = -(float(row_debit) + row_dpp)
+                        # Rumus Excel: -(Debit + DPP)
+                        row_diff_formula = f"=-(G{r} + O{r})" 
                     else:
                         row_diff = float(row_net)
+                        # Rumus Excel: Net
+                        row_diff_formula = f"=I{r}" 
 
                     status = "Tidak ada di Coretax"
                     difference_total += row_diff
 
                 elif voucher_no not in processed_coretax:
-                    # KONDISI 2: BARIS PERTAMA DARI JURNAL YANG MATCH
+                    # KONDISI 2: BARIS PERTAMA YANG MATCH
                     row_dpp = float(row.get("DPP", 0))
                     row_ppn = float(row.get("PPN", 0))
 
@@ -555,43 +561,44 @@ def compare_files(
 
                         if row["Account Name"] == "Sales Return":
                             row_diff = -(float(total_gl_debit) + row_dpp)
-                        elif row["Account Name"] == "Repair Service Income":
+                            # Karena total_gl_debit adalah gabungan banyak baris, angkanya kita print mati, tapi DPP tetap referensi sel O
+                            row_diff_formula = f"=-({total_gl_debit} + O{r})"
+                        elif row["Account Name"] in ["Repair Service Income", "Sales Price Protection", "Sales"]:
                             row_diff = float(total_gl_net) - row_dpp
-                        elif row["Account Name"] == "Sales Price Protection":
-                            row_diff = float(total_gl_net) - row_dpp
-                        elif row["Account Name"] == "Sales":
-                            row_diff = float(total_gl_net) - row_dpp
+                            row_diff_formula = f"={total_gl_net} - O{r}"
                         else:
                             if total_gl_net == 0:
                                 row_diff = float(row_net - row_dpp)
+                                # Gunakan Net baris ini dikurangi DPP
+                                row_diff_formula = f"=I{r} - O{r}"
                             else:
                                 row_diff = float(total_gl_net - row_dpp)
+                                row_diff_formula = f"={total_gl_net} - O{r}"
 
                         status = "Unique"
                     else:
                         if row["Account Name"] == "Sales Return":
                             row_diff = -(float(row_debit) + row_dpp)
-                        elif row["Account Name"] == "Repair Service Income":
+                            row_diff_formula = f"=-(G{r} + O{r})"
+                        elif row["Account Name"] in ["Repair Service Income", "Sales Price Protection", "Sales"]:
                             row_diff = float(row_net) - row_dpp
-                        elif row["Account Name"] == "Sales Price Protection":
-                            row_diff = float(row_net) - row_dpp
-                        elif row["Account Name"] == "Sales":
-                            row_diff = float(row_net) - row_dpp
+                            row_diff_formula = f"=I{r} - O{r}"
                         else:
                             row_diff = float(row_net)
+                            row_diff_formula = f"=I{r}"
                         status = "Tidak ada di Coretax"
 
-                    # Tambahkan data Coretax ke subtotal HANYA SEKALI
                     dpp_total += row_dpp
                     ppn_total += row_ppn
                     difference_total += row_diff
                     processed_coretax.add(voucher_no)
 
                 else:
-                    # KONDISI 3: BARIS LANJUTAN (PECAHAN JURNAL)
+                    # KONDISI 3: BARIS LANJUTAN
                     row_dpp = 0.0
                     row_ppn = 0.0
                     row_diff = 0
+                    row_diff_formula = "=0"
 
                     if voucher_no_in_coretax:
                         status = "Unique"
@@ -619,7 +626,9 @@ def compare_files(
                 )
                 current_ws.cell(r, 15).value = row_dpp
                 current_ws.cell(r, 16).value = row_ppn
-                current_ws.cell(r, 17).value = row_diff
+                
+                # Cetak formula yang sudah dipilih secara cerdas oleh Python
+                current_ws.cell(r, 17).value = row_diff_formula
                 current_ws.cell(r, 18).value = (
                     row.get("Customer")
                     if str(row.get("Customer")) not in ["nan", "None"]
