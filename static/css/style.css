@@ -7,8 +7,6 @@
   bottom: 0;
   background-color: rgba(255, 255, 255, 0.8);
   z-index: 9999;
-  text-align: center;
-  padding-top: 20%;
 }
 
 #uploadPage .navbar {
@@ -118,6 +116,34 @@
   background: white;
   border-radius: 15px;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); /* Shadow lembut */
+  width: min(420px, 90vw);
+}
+
+.loading-progress-wrapper {
+  width: min(320px, 80vw);
+}
+
+.loading-progress-note {
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.loading-progress-bar-wrapper {
+  height: 1rem;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.loading-progress-bar-wrapper .progress-bar {
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: width 0.35s ease;
+}
+
+.loading-progress-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #212529;
 }
 
 /* Animasi fade-in sederhana */

@@ -145,14 +145,29 @@ def calculate_net(row):
 
 
 def compare_files(
-    k3_sheets: dict, coretax_sheets_1: dict, coretax_sheets_2: dict, output_dir: str
+    k3_sheets: dict,
+    coretax_sheets_1: dict,
+    coretax_sheets_2: dict,
+    output_dir: str,
+    progress_callback=None,
 ) -> str:
     # k3_sheets, coretax_sheets_1, coretax_sheets_2 are already dicts of {sheet_name: DataFrame}
     # from pd.read_excel(..., sheet_name=None) in app.py — no need to re-read.
+    def _emit_progress(progress: int, message: str):
+        if progress_callback is None:
+            return
+        try:
+            progress_callback(progress, message)
+        except Exception as callback_error:
+            # Progress reporting failure should never stop comparison process.
+            print(f"Progress callback error: {callback_error}")
+
+    _emit_progress(0, "Preparing comparison data...")
 
     # 1) Concatenate all K3 sheets (keep original column names for later use)
     k3 = pd.concat(k3_sheets.values(), ignore_index=True)
     print(f"K3 combined shape: {k3.shape}, columns: {list(k3.columns)}")
+    _emit_progress(8, "Normalizing GL source data...")
 
     # 2) BARU terapkan ekstraksi No. Faktur & Nett pada variabel 'k3'
     k3["No Faktur (key)"] = k3.apply(
@@ -174,6 +189,7 @@ def compare_files(
         [_normalize_columns(sheet_data) for sheet_data in coretax_sheets_2.values()],
         ignore_index=True,
     )
+    _emit_progress(18, "Normalizing Coretax data...")
 
     # Pastikan key jadi NO_VOUCHER
     if "DOC_NO" in coretax_1.columns and "NO_VOUCHER" not in coretax_1.columns:
@@ -291,6 +307,7 @@ def compare_files(
     coretax_combined = pd.concat(
         [coretax_1[keep_cols_1], coretax_2[keep_cols_2]], ignore_index=True
     )
+    _emit_progress(30, "Merging Coretax datasets...")
 
     coretax_combined = coretax_combined.drop_duplicates(
         subset=["NO_VOUCHER"], keep="first"
@@ -331,6 +348,7 @@ def compare_files(
         how="left",
         indicator=True,
     )
+    _emit_progress(42, "Building reconciliation results...")
 
     # 11) Compute Difference based on account type
     merged["Debit Amount"] = pd.to_numeric(
@@ -415,6 +433,7 @@ def compare_files(
     # Load template Excel
     wb = load_workbook(DRAFT_TEMPLATE_PATH)
     ws = wb.active
+    _emit_progress(50, "Preparing output workbook...")
 
     # --- 14) INISIALISASI TOTAL & VARIABEL (Sebelum Loop) ---
     debit_total = credit_total = net_total = balance_total = 0
@@ -472,6 +491,10 @@ def compare_files(
 
     # Group by Account Name, pertahankan urutan kemunculan
     account_groups = merged.groupby("Account Name", sort=False)
+
+    total_rows_to_write = len(merged)
+    rows_written = 0
+    last_emitted_progress = 52
 
     for account_name, group_df in account_groups:
         group_df = group_df.reset_index(drop=True)
@@ -640,6 +663,19 @@ def compare_files(
                 current_ws.cell(r, 20).value = status
 
                 sheet_row_counts[current_ws.title] += 1
+                rows_written += 1
+
+                if total_rows_to_write > 0 and (
+                    rows_written == total_rows_to_write or rows_written % 2000 == 0
+                ):
+                    dynamic_progress = 52 + int((rows_written / total_rows_to_write) * 36)
+                    dynamic_progress = min(88, dynamic_progress)
+                    if dynamic_progress > last_emitted_progress:
+                        last_emitted_progress = dynamic_progress
+                        _emit_progress(
+                            dynamic_progress,
+                            f"Writing reconciliation rows ({rows_written}/{total_rows_to_write})...",
+                        )
 
         print(f"Akun '{account_name}': {total_rows} baris -> {n_chunks} sheet")
 
@@ -668,6 +704,8 @@ def compare_files(
                 f"=SUBTOTAL(109, {col_letter}{start_row}:{col_letter}{last_row})"
             )
             cell.font = bold_font
+
+    _emit_progress(90, "Applying sheet table formatting...")
 
     # --- 17) FORMAT RANGE JADI EXCEL TABLE DI TIAP SHEET ---
     header_row = 4
@@ -701,11 +739,14 @@ def compare_files(
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
+    _emit_progress(96, "Saving comparison workbook...")
+
     # Save the workbook (preserves template formatting + all sheets)
     out_name = f"Draft_Updated_Output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     out_path = os.path.join(output_dir, out_name)
     wb.save(out_path)
     print(f"Saved output to {out_path}")
+    _emit_progress(100, "Comparison file generated.")
 
     # Dapatkan daftar nama sheet dari workbook yang baru disimpan
     sheet_names = wb.sheetnames

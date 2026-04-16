@@ -142,11 +142,16 @@
   <!-- Loading screen -->
   <div id="loadingScreen" class="loading-overlay">
     <div class="loading-content">
-      <div class="spinner-border text-success" role="status" style="width: 3rem; height: 3rem;">
-        <span class="visually-hidden">Loading...</span>
+      <div class="loading-progress-wrapper">
+        <h5 class="fw-bold text-dark mb-2">Please Wait...</h5>
+        <p class="text-muted loading-progress-note" id="loadingStatusText">Uploading and preparing your data.</p>
+        <div id="loadingProgressContainer" class="progress loading-progress-bar-wrapper mb-2" role="progressbar"
+          aria-label="Loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div id="loadingProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+            style="width: 0%">0%</div>
+        </div>
+        <div id="loadingProgressText" class="loading-progress-value">0%</div>
       </div>
-      <h5 class="mt-3 fw-bold text-dark">Please Wait...</h5>
-      <p class="text-muted">Preparing your data</p>
     </div>
   </div>
 
@@ -158,11 +163,125 @@
   <script>
     const uploadForm = document.getElementById('uploadForm');
     const loadingScreen = document.getElementById('loadingScreen');
+    const loadingProgressContainer = document.getElementById('loadingProgressContainer');
+    const loadingProgressBar = document.getElementById('loadingProgressBar');
+    const loadingProgressText = document.getElementById('loadingProgressText');
+    const loadingStatusText = document.getElementById('loadingStatusText');
+    const submitButton = uploadForm.querySelector('button[type="submit"]');
 
-    // Show loading screen when form is submitted
-    uploadForm.addEventListener('submit', function (event) {
-      // Show loading screen
-      loadingScreen.style.display = 'block';
+    let progressEventSource = null;
+
+    function setLoadingProgress(value) {
+      const normalizedValue = Math.max(0, Math.min(100, Number(value) || 0));
+      const percentageText = `${normalizedValue}%`;
+
+      loadingProgressBar.style.width = percentageText;
+      loadingProgressBar.textContent = percentageText;
+      loadingProgressText.textContent = percentageText;
+      loadingProgressContainer.setAttribute('aria-valuenow', normalizedValue);
+    }
+
+    function showLoading(statusMessage) {
+      loadingStatusText.textContent = statusMessage;
+      setLoadingProgress(0);
+      loadingScreen.style.display = 'flex';
+    }
+
+    function closeProgressStream() {
+      if (progressEventSource) {
+        progressEventSource.close();
+        progressEventSource = null;
+      }
+    }
+
+    function setSubmittingState(isSubmitting) {
+      submitButton.disabled = isSubmitting;
+      submitButton.textContent = isSubmitting ? 'Processing...' : 'Upload & Compare';
+    }
+
+    function handleProgressMessage(payload) {
+      if (!payload) return;
+
+      if (typeof payload.progress !== 'undefined') {
+        setLoadingProgress(payload.progress);
+      }
+
+      if (payload.message) {
+        loadingStatusText.textContent = payload.message;
+      }
+
+      if (payload.status === 'done') {
+        loadingStatusText.textContent = 'Comparison completed. Redirecting...';
+        setLoadingProgress(100);
+        closeProgressStream();
+
+        if (payload.redirect_url) {
+          setTimeout(function () {
+            window.location.href = payload.redirect_url;
+          }, 250);
+        }
+      } else if (payload.status === 'error') {
+        closeProgressStream();
+        setSubmittingState(false);
+        loadingStatusText.textContent = payload.error || 'Comparison failed. Please try again.';
+      }
+    }
+
+    async function startUploadWithProgress(formData) {
+      const response = await fetch('/upload/start', {
+        method: 'POST',
+        body: formData
+      });
+
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch (error) {
+        payload = {};
+      }
+
+      if (!response.ok || !payload.job_id) {
+        throw new Error(payload.error || 'Failed to start upload process.');
+      }
+
+      const progressUrl = `/upload/progress/${encodeURIComponent(payload.job_id)}`;
+      progressEventSource = new EventSource(progressUrl);
+
+      progressEventSource.onmessage = function (event) {
+        try {
+          const progressPayload = JSON.parse(event.data);
+          handleProgressMessage(progressPayload);
+        } catch (error) {
+          loadingStatusText.textContent = 'Unable to read progress update.';
+        }
+      };
+
+      progressEventSource.onerror = function () {
+        closeProgressStream();
+        setSubmittingState(false);
+        loadingStatusText.textContent = 'Connection lost while tracking progress.';
+      };
+    }
+
+    uploadForm.addEventListener('submit', async function (event) {
+      event.preventDefault();
+
+      setSubmittingState(true);
+      showLoading('Uploading files...');
+      loadingStatusText.textContent = 'Uploading files and initializing comparison...';
+
+      const formData = new FormData(uploadForm);
+
+      try {
+        await startUploadWithProgress(formData);
+      } catch (error) {
+        setSubmittingState(false);
+        loadingStatusText.textContent = error.message || 'Failed to upload files.';
+      }
+    });
+
+    window.addEventListener('beforeunload', function () {
+      closeProgressStream();
     });
   </script>
 

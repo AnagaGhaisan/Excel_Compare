@@ -1,12 +1,28 @@
-from flask import Flask, request, render_template, send_file, redirect, url_for, send_from_directory
+from flask import (
+    Flask,
+    request,
+    render_template,
+    send_file,
+    redirect,
+    url_for,
+    send_from_directory,
+    Response,
+    jsonify,
+    stream_with_context,
+)
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
-from helpers import compare_files, allowed_file, delete_all_uploaded_files
+from functools import lru_cache
+from helpers import compare_files, allowed_file
 from recap_handler import recap_bp
 import pandas as pd
 from waitress import serve
 import uuid
+import threading
+import time
+import json
+from urllib.parse import urlencode
 # IMPORT FUNGSI DARI FILE LAIN (Pastikan nama file dan fungsi sesuai)
 from ekualisasi_handler import proses_ekualisasi
 
@@ -29,11 +45,191 @@ OUTPUT_RECAP_DIR = os.path.join(BASE_DIR, "outputs", "recap")
 app.config["OUTPUT_COMPARE_FOLDER"] = os.path.join(OUTPUT_DIR, "compare")
 app.config["OUTPUT_RECAP_FOLDER"] = os.path.join(OUTPUT_DIR, "recap")
 app.config["UPLOAD_FOLDER"] = os.path.join(BASE_DIR, "uploads")
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 86400
 
 # 2. Pastikan folder fisik dibuat di server
 os.makedirs(app.config["OUTPUT_COMPARE_FOLDER"], exist_ok=True)
 os.makedirs(app.config["OUTPUT_RECAP_FOLDER"], exist_ok=True)
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+
+COMPARE_JOBS = {}
+COMPARE_JOBS_LOCK = threading.Lock()
+COMPARE_JOB_TTL_SECONDS = 1800
+
+
+def _delete_uploaded_files(file_paths):
+    for file_path in file_paths:
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            print(f"Error deleting file {file_path}: {e}")
+
+
+def _cleanup_compare_jobs():
+    now = time.time()
+    with COMPARE_JOBS_LOCK:
+        expired_job_ids = [
+            job_id
+            for job_id, job in COMPARE_JOBS.items()
+            if job.get("status") in {"done", "error"}
+            and (now - job.get("updated_at", now)) > COMPARE_JOB_TTL_SECONDS
+        ]
+        for job_id in expired_job_ids:
+            COMPARE_JOBS.pop(job_id, None)
+
+
+def _create_compare_job(job_id):
+    with COMPARE_JOBS_LOCK:
+        COMPARE_JOBS[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "progress": 0,
+            "message": "Job created.",
+            "error": None,
+            "redirect_url": None,
+            "updated_at": time.time(),
+        }
+
+
+def _update_compare_job(
+    job_id, progress=None, status=None, message=None, error=None, redirect_url=None
+):
+    with COMPARE_JOBS_LOCK:
+        job = COMPARE_JOBS.get(job_id)
+        if not job:
+            return
+
+        if progress is not None:
+            bounded_progress = max(0, min(100, int(progress)))
+            job["progress"] = bounded_progress
+        if status is not None:
+            job["status"] = status
+        if message is not None:
+            job["message"] = message
+        if error is not None:
+            job["error"] = error
+        if redirect_url is not None:
+            job["redirect_url"] = redirect_url
+        job["updated_at"] = time.time()
+
+
+def _get_compare_job(job_id):
+    with COMPARE_JOBS_LOCK:
+        job = COMPARE_JOBS.get(job_id)
+        return dict(job) if job else None
+
+
+def _build_comparison_redirect_url(file_name, sheet_list):
+    query = urlencode(
+        {
+            "updated_file": file_name,
+            "mode": "compare",
+            "sheets": ",".join(sheet_list),
+            "page": 1,
+        }
+    )
+    return f"/comparison?{query}"
+
+
+def _process_comparison_job(
+    job_id, k3_file_path, coretax_file_path_1, coretax_file_path_2
+):
+    _update_compare_job(
+        job_id,
+        progress=10,
+        status="processing",
+        message="Reading GL file...",
+    )
+
+    try:
+        k3_sheets = pd.read_excel(k3_file_path, sheet_name=None, header=1)
+        _update_compare_job(
+            job_id,
+            progress=25,
+            status="processing",
+            message="Reading Coretax Digunggung file...",
+        )
+
+        coretax_sheets_1 = pd.read_excel(coretax_file_path_1, sheet_name=None, header=1)
+        _update_compare_job(
+            job_id,
+            progress=40,
+            status="processing",
+            message="Reading Coretax Tidak Digunggung file...",
+        )
+
+        coretax_sheets_2 = pd.read_excel(coretax_file_path_2, sheet_name=None, header=1)
+        _update_compare_job(
+            job_id,
+            progress=50,
+            status="processing",
+            message="Comparing and matching data...",
+        )
+
+        def _on_compare_progress(compare_progress, compare_message):
+            bounded_progress = max(0, min(100, int(compare_progress)))
+            mapped_progress = 50 + int((bounded_progress / 100) * 45)
+            _update_compare_job(
+                job_id,
+                progress=mapped_progress,
+                status="processing",
+                message=compare_message,
+            )
+
+        _, file_name, sheet_list = compare_files(
+            k3_sheets,
+            coretax_sheets_1,
+            coretax_sheets_2,
+            app.config["OUTPUT_COMPARE_FOLDER"],
+            progress_callback=_on_compare_progress,
+        )
+
+        redirect_url = _build_comparison_redirect_url(file_name, sheet_list)
+        _update_compare_job(
+            job_id,
+            progress=100,
+            status="done",
+            message="Comparison completed successfully.",
+            redirect_url=redirect_url,
+        )
+    except Exception as e:
+        print(f"Error in comparison job {job_id}: {e}")
+        _update_compare_job(
+            job_id,
+            progress=100,
+            status="error",
+            message="Comparison failed.",
+            error=str(e),
+        )
+    finally:
+        _delete_uploaded_files([k3_file_path, coretax_file_path_1, coretax_file_path_2])
+
+
+@lru_cache(maxsize=64)
+def _read_excel_sheet_cached(file_path, sheet_name, modified_time):
+    return pd.read_excel(file_path, sheet_name=sheet_name)
+
+
+@lru_cache(maxsize=16)
+def _read_excel_file_cached(file_path, modified_time):
+    return pd.ExcelFile(file_path)
+
+
+def _get_file_modified_time(file_path):
+    try:
+        return os.path.getmtime(file_path)
+    except OSError:
+        return 0.0
+
+
+@app.after_request
+def set_static_cache_headers(response):
+    if request.path.startswith("/static/"):
+        response.cache_control.public = True
+        response.cache_control.max_age = 31536000
+        response.cache_control.immutable = True
+    return response
 
 # Homepage route to upload files
 @app.route("/")
@@ -72,6 +268,126 @@ def download_template(template_type):
         return f"File {filename} tidak ditemukan di folder static/excel_template", 404
     
     return send_from_directory(template_dir, filename, as_attachment=True)
+
+
+@app.route("/upload/start", methods=["POST"])
+def start_upload_file():
+    _cleanup_compare_jobs()
+
+    if (
+        "k3_file" not in request.files
+        or "coretax_file_1" not in request.files
+        or "coretax_file_2" not in request.files
+    ):
+        return jsonify({"error": "No file part"}), 400
+
+    k3_file = request.files["k3_file"]
+    coretax_file_1 = request.files["coretax_file_1"]
+    coretax_file_2 = request.files["coretax_file_2"]
+
+    if (
+        k3_file.filename == ""
+        or coretax_file_1.filename == ""
+        or coretax_file_2.filename == ""
+    ):
+        return jsonify({"error": "No selected file"}), 400
+
+    if not (
+        k3_file
+        and allowed_file(k3_file.filename, app.config["ALLOWED_EXTENSIONS"])
+        and coretax_file_1
+        and allowed_file(coretax_file_1.filename, app.config["ALLOWED_EXTENSIONS"])
+        and coretax_file_2
+        and allowed_file(coretax_file_2.filename, app.config["ALLOWED_EXTENSIONS"])
+    ):
+        return jsonify({"error": "Invalid file type"}), 400
+
+    unique_id = str(uuid.uuid4())[:8]
+    job_id = str(uuid.uuid4())
+
+    k3_filename = f"{unique_id}_{secure_filename(k3_file.filename)}"
+    coretax_filename_1 = f"{unique_id}_{secure_filename(coretax_file_1.filename)}"
+    coretax_filename_2 = f"{unique_id}_{secure_filename(coretax_file_2.filename)}"
+
+    k3_file_path = os.path.join(app.config["UPLOAD_FOLDER"], k3_filename)
+    coretax_file_path_1 = os.path.join(app.config["UPLOAD_FOLDER"], coretax_filename_1)
+    coretax_file_path_2 = os.path.join(app.config["UPLOAD_FOLDER"], coretax_filename_2)
+
+    try:
+        k3_file.save(k3_file_path)
+        coretax_file_1.save(coretax_file_path_1)
+        coretax_file_2.save(coretax_file_path_2)
+    except Exception as e:
+        _delete_uploaded_files([k3_file_path, coretax_file_path_1, coretax_file_path_2])
+        return jsonify({"error": f"Failed to save uploaded files: {str(e)}"}), 500
+
+    _create_compare_job(job_id)
+    _update_compare_job(
+        job_id,
+        progress=5,
+        status="processing",
+        message="Files uploaded. Starting comparison...",
+    )
+
+    worker = threading.Thread(
+        target=_process_comparison_job,
+        args=(job_id, k3_file_path, coretax_file_path_1, coretax_file_path_2),
+        daemon=True,
+    )
+    worker.start()
+
+    return jsonify({"job_id": job_id}), 202
+
+
+@app.route("/upload/progress/<job_id>", methods=["GET"])
+def stream_upload_progress(job_id):
+    def event_stream():
+        last_payload = None
+
+        while True:
+            job = _get_compare_job(job_id)
+            if not job:
+                payload = {
+                    "job_id": job_id,
+                    "status": "error",
+                    "progress": 100,
+                    "message": "Progress session not found.",
+                    "error": "Job not found or already expired.",
+                    "redirect_url": None,
+                }
+                yield f"data: {json.dumps(payload)}\n\n"
+                break
+
+            payload = {
+                "job_id": job["job_id"],
+                "status": job["status"],
+                "progress": job["progress"],
+                "message": job["message"],
+                "error": job["error"],
+                "redirect_url": job["redirect_url"],
+            }
+            payload_text = json.dumps(payload)
+
+            if payload_text != last_payload:
+                yield f"data: {payload_text}\n\n"
+                last_payload = payload_text
+            else:
+                yield ": keep-alive\n\n"
+
+            if job["status"] in {"done", "error"}:
+                break
+
+            time.sleep(0.5)
+
+        _cleanup_compare_jobs()
+
+    response = Response(
+        stream_with_context(event_stream()),
+        mimetype="text/event-stream",
+    )
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
 
 
 @app.route("/upload", methods=["POST"])
@@ -163,9 +479,7 @@ def upload_file():
             k3_sheets, coretax_sheets_1, coretax_sheets_2, output_dir
         )
 
-        # 4. HAPUS BAGIAN INI: delete_all_uploaded_files(app)
-        # Agar file di folder uploads dan outputs tidak hilang (menjadi database)
-        delete_all_uploaded_files(app)
+        _delete_uploaded_files([k3_file_path, coretax_file_path_1, coretax_file_path_2])
 
         # 5. Redirect dengan menyertakan mode='compare'
         return redirect(
@@ -219,10 +533,11 @@ def show_comparison():
 
     # --- LOGIKA MODE RECAP ---
     if mode == "recap":
-        xls = pd.ExcelFile(file_path)
+        modified_time = _get_file_modified_time(file_path)
+        xls = _read_excel_file_cached(file_path, modified_time)
         all_tables = []
         for name in xls.sheet_names:
-            df = pd.read_excel(xls, sheet_name=name)
+            df = _read_excel_sheet_cached(file_path, name, modified_time)
             html_content = df.to_html(
                 classes="table table-hover table-bordered", index=False, na_rep=""
             )
@@ -239,7 +554,8 @@ def show_comparison():
     # --- LOGIKA MODE COMPARE (Pagination & Pilih Sheet) ---
     else:
         # Baca sheet yang dipilih saja
-        merged_df = pd.read_excel(file_path, sheet_name=current_sheet)
+        modified_time = _get_file_modified_time(file_path)
+        merged_df = _read_excel_sheet_cached(file_path, current_sheet, modified_time)
 
         total_pages = (len(merged_df) // rows_per_page) + (
             1 if len(merged_df) % rows_per_page != 0 else 0
@@ -347,8 +663,7 @@ def ekualisasi_pph23_route():
                 # 7. Jalankan pemrosesan
                 proses_ekualisasi(bupot_path, voucher_path, template_path, output_path)
                 
-                # 8. Hapus file sementara di folder uploads (seperti PPN)
-                delete_all_uploaded_files(app)
+                _delete_uploaded_files([bupot_path, voucher_path])
                 
                 # 9. Kembalikan file hasil
                 return send_file(output_path, as_attachment=True, download_name='Hasil_Ekualisasi_PPH23.xlsx')

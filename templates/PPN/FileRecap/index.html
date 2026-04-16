@@ -124,12 +124,16 @@
 
   <div id="loadingScreen" class="loading-overlay">
     <div class="loading-content">
-      <div class="spinner-border text-primary" role="status"
-        style="width: 3.5rem; height: 3.5rem; border-width: 0.25em;">
-        <span class="visually-hidden">Loading...</span>
+      <div class="loading-progress-wrapper">
+        <h4 class="fw-bold mb-2">In Process...</h4>
+        <p class="text-muted loading-progress-note" id="loadingStatusText">Please wait, system is equalizing your data.</p>
+        <div id="loadingProgressContainer" class="progress loading-progress-bar-wrapper mb-2" role="progressbar"
+          aria-label="Loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div id="loadingProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+            style="width: 0%">0%</div>
+        </div>
+        <div id="loadingProgressText" class="loading-progress-value">0%</div>
       </div>
-      <h4 class="mt-4 fw-bold">In Process...</h4>
-      <p class="text-muted">Please wait a moment, the system is equalizing your data.</p>
     </div>
   </div>
 
@@ -139,9 +143,125 @@
   <script>
     const uploadForm = document.getElementById('uploadForm');
     const loadingScreen = document.getElementById('loadingScreen');
+    const loadingProgressContainer = document.getElementById('loadingProgressContainer');
+    const loadingProgressBar = document.getElementById('loadingProgressBar');
+    const loadingProgressText = document.getElementById('loadingProgressText');
+    const loadingStatusText = document.getElementById('loadingStatusText');
+    const submitButton = uploadForm.querySelector('button[type="submit"]');
 
-    uploadForm.addEventListener('submit', function (event) {
-      loadingScreen.style.display = 'flex'; // Gunakan flex agar centering loading-content bekerja
+    let progressEventSource = null;
+
+    function setLoadingProgress(value) {
+      const normalizedValue = Math.max(0, Math.min(100, Number(value) || 0));
+      const percentageText = `${normalizedValue}%`;
+
+      loadingProgressBar.style.width = percentageText;
+      loadingProgressBar.textContent = percentageText;
+      loadingProgressText.textContent = percentageText;
+      loadingProgressContainer.setAttribute('aria-valuenow', normalizedValue);
+    }
+
+    function showLoading(statusMessage) {
+      loadingStatusText.textContent = statusMessage;
+      setLoadingProgress(0);
+      loadingScreen.style.display = 'flex';
+    }
+
+    function closeProgressStream() {
+      if (progressEventSource) {
+        progressEventSource.close();
+        progressEventSource = null;
+      }
+    }
+
+    function setSubmittingState(isSubmitting) {
+      submitButton.disabled = isSubmitting;
+      submitButton.textContent = isSubmitting ? 'Memproses...' : 'Process & Recapitulation';
+    }
+
+    function handleProgressMessage(payload) {
+      if (!payload) return;
+
+      if (typeof payload.progress !== 'undefined') {
+        setLoadingProgress(payload.progress);
+      }
+
+      if (payload.message) {
+        loadingStatusText.textContent = payload.message;
+      }
+
+      if (payload.status === 'done') {
+        loadingStatusText.textContent = 'Recap selesai. Mengalihkan...';
+        setLoadingProgress(100);
+        closeProgressStream();
+
+        if (payload.redirect_url) {
+          setTimeout(function () {
+            window.location.href = payload.redirect_url;
+          }, 250);
+        }
+      } else if (payload.status === 'error') {
+        closeProgressStream();
+        setSubmittingState(false);
+        loadingStatusText.textContent = payload.error || 'Proses recap gagal. Silakan coba lagi.';
+      }
+    }
+
+    async function startRecapWithProgress(formData) {
+      const response = await fetch('/upload_recap/start', {
+        method: 'POST',
+        body: formData
+      });
+
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch (error) {
+        payload = {};
+      }
+
+      if (!response.ok || !payload.job_id) {
+        throw new Error(payload.error || 'Gagal memulai proses recap.');
+      }
+
+      const progressUrl = `/upload_recap/progress/${encodeURIComponent(payload.job_id)}`;
+      progressEventSource = new EventSource(progressUrl);
+
+      progressEventSource.onmessage = function (event) {
+        try {
+          const progressPayload = JSON.parse(event.data);
+          handleProgressMessage(progressPayload);
+        } catch (error) {
+          loadingStatusText.textContent = 'Tidak dapat membaca status progres.';
+        }
+      };
+
+      progressEventSource.onerror = function () {
+        closeProgressStream();
+        setSubmittingState(false);
+        loadingStatusText.textContent = 'Koneksi terputus saat memantau progres.';
+      };
+    }
+
+    uploadForm.addEventListener('submit', async function (event) {
+      event.preventDefault();
+
+      setSubmittingState(true);
+      showLoading('Mengunggah file...');
+      loadingStatusText.textContent = 'Mengunggah file dan memulai proses recap...';
+
+      const formData = new FormData(uploadForm);
+
+      try {
+        await startRecapWithProgress(formData);
+      } catch (error) {
+        setSubmittingState(false);
+        loadingStatusText.textContent = error.message || 'Gagal mengunggah file.';
+      }
+    });
+
+    window.addEventListener('beforeunload', function () {
+      closeProgressStream();
     });
   </script>
 </body>
