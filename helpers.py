@@ -1,6 +1,7 @@
 import os
 import re
 import math
+import uuid
 import openpyxl
 import numpy as np
 import pandas as pd
@@ -85,6 +86,34 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _pick_existing_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    for candidate in candidates:
+        if candidate in df.columns:
+            return candidate
+    return None
+
+
+def _ensure_column_from_aliases(
+    df: pd.DataFrame, target: str, candidates: list[str], required: bool = False
+) -> pd.DataFrame:
+    df = df.copy()
+    source = _pick_existing_column(df, candidates)
+
+    if source is None:
+        if required:
+            raise ValueError(
+                f"Kolom untuk '{target}' tidak ditemukan. Coba salah satu: {', '.join(candidates)}"
+            )
+        if target not in df.columns:
+            df[target] = None
+        return df
+
+    if source != target:
+        df[target] = df[source]
+
+    return df
+
+
 def _parse_id_number(x):
     """
     Aman untuk angka dengan format Indonesia:
@@ -118,9 +147,9 @@ def _parse_id_number(x):
 
 
 def calculate_net(row):
-    debit = float(row.get("Debit Amount", 0))
-    credit = float(row.get("Credit Amount", 0))
-    acc_name = str(row.get("Account Name", "")).strip()
+    debit = float(row.get("DEBIT_AMOUNT", row.get("Debit Amount", 0)))
+    credit = float(row.get("CREDIT_AMOUNT", row.get("Credit Amount", 0)))
+    acc_name = str(row.get("ACCOUNT_NAME", row.get("Account Name", ""))).strip()
 
     # Pendapatan: -Debit + Credit
     if acc_name in [
@@ -164,15 +193,42 @@ def compare_files(
 
     _emit_progress(0, "Preparing comparison data...")
 
-    # 1) Concatenate all K3 sheets (keep original column names for later use)
+    # 1) Concatenate all K3 sheets
     k3 = pd.concat(k3_sheets.values(), ignore_index=True)
+    k3 = _normalize_columns(k3)
+    k3 = _ensure_column_from_aliases(
+        k3, "ACCOUNT_NO", ["ACCOUNT_NO", "ACCOUNT_NO_"], required=True
+    )
+    k3 = _ensure_column_from_aliases(
+        k3, "ACCOUNT_NAME", ["ACCOUNT_NAME"], required=True
+    )
+    k3 = _ensure_column_from_aliases(k3, "DATE", ["DATE"], required=True)
+    k3 = _ensure_column_from_aliases(
+        k3, "VOUCHER_CATEGORY", ["VOUCHER_CATEGORY"], required=True
+    )
+    k3 = _ensure_column_from_aliases(
+        k3, "VOUCHER_NO", ["VOUCHER_NO"], required=True
+    )
+    k3 = _ensure_column_from_aliases(
+        k3, "DESCRIPTION", ["DESCRIPTION"], required=True
+    )
+    k3 = _ensure_column_from_aliases(
+        k3, "DEBIT_AMOUNT", ["DEBIT_AMOUNT"], required=True
+    )
+    k3 = _ensure_column_from_aliases(
+        k3, "CREDIT_AMOUNT", ["CREDIT_AMOUNT"], required=True
+    )
+    k3 = _ensure_column_from_aliases(
+        k3, "DIRECTION", ["DIRECTION"], required=False
+    )
+    k3 = _ensure_column_from_aliases(k3, "BALANCE", ["BALANCE"], required=False)
     print(f"K3 combined shape: {k3.shape}, columns: {list(k3.columns)}")
     _emit_progress(8, "Normalizing GL source data...")
 
     # 2) BARU terapkan ekstraksi No. Faktur & Nett pada variabel 'k3'
     k3["No Faktur (key)"] = k3.apply(
         lambda row: extract_no_faktur_from_description(
-            row.get("Description", ""), row.get("Voucher Category", "")
+            row.get("DESCRIPTION", ""), row.get("VOUCHER_CATEGORY", "")
         ),
         axis=1,
     )
@@ -192,55 +248,43 @@ def compare_files(
     _emit_progress(18, "Normalizing Coretax data...")
 
     # Pastikan key jadi NO_VOUCHER
-    if "DOC_NO" in coretax_1.columns and "NO_VOUCHER" not in coretax_1.columns:
-        coretax_1 = coretax_1.rename(columns={"DOC_NO": "NO_VOUCHER"})
-    if "DOC_NO" in coretax_2.columns and "NO_VOUCHER" not in coretax_2.columns:
-        coretax_2 = coretax_2.rename(columns={"DOC_NO": "NO_VOUCHER"})
-
-    if "NO_VOUCHER" not in coretax_1.columns:
-        raise ValueError(
-            "Coretax Digunggung: kolom DOC_NO / NO VOUCHER tidak ditemukan."
-        )
-    if "NO_VOUCHER" not in coretax_2.columns:
-        raise ValueError(
-            "Coretax Tidak Digunggung: kolom DOC_NO / NO VOUCHER tidak ditemukan."
-        )
+    coretax_1 = _ensure_column_from_aliases(
+        coretax_1, "NO_VOUCHER", ["NO_VOUCHER", "DOC_NO"], required=True
+    )
+    coretax_2 = _ensure_column_from_aliases(
+        coretax_2, "NO_VOUCHER", ["NO_VOUCHER", "DOC_NO"], required=True
+    )
 
     # 3) Harmonize DPP/PPN + CUSTOMER + status
-    # --- Digunggung: AMOUNT_BEF_TAX = DPP, TAX_AMOUNT = PPN, CUSTOMER_NAME = CUSTOMER
-    if "DPP" not in coretax_1.columns and "AMOUNT_BEF_TAX" in coretax_1.columns:
-        coretax_1["DPP"] = coretax_1["AMOUNT_BEF_TAX"]
-    if "PPN" not in coretax_1.columns and "TAX_AMOUNT" in coretax_1.columns:
-        coretax_1["PPN"] = coretax_1["TAX_AMOUNT"]
-
-    coretax_1["CUSTOMER"] = (
-        coretax_1["CUSTOMER_NAME"] if "CUSTOMER_NAME" in coretax_1.columns else None
+    # --- Digunggung
+    coretax_1 = _ensure_column_from_aliases(
+        coretax_1, "DPP", ["DPP", "AMOUNT_BEF_TAX"], required=False
     )
-    coretax_1["FP_STATUS"] = "FP Digunggung"
+    coretax_1 = _ensure_column_from_aliases(
+        coretax_1, "PPN", ["PPN", "TAX_AMOUNT"], required=False
+    )
+    coretax_1 = _ensure_column_from_aliases(
+        coretax_1, "CUSTOMER", ["CUSTOMER", "DEPT", "CUSTOMER_NAME", "NPWP_NAME_DOC"]
+    )
+    coretax_1 = _ensure_column_from_aliases(
+        coretax_1, "FP_STATUS", ["FP_STATUS", "TAX_STATUS"]
+    )
+    coretax_1["FP_STATUS"] = coretax_1["FP_STATUS"].fillna("FP Digunggung")
 
-    # --- Tidak Digunggung: DPP = DPP, PPN = PPN, NAMA_PEMBELI = CUSTOMER
-    if "DPP" not in coretax_2.columns and "AMOUNT_BEF_TAX" in coretax_2.columns:
-        coretax_2["DPP"] = coretax_2["AMOUNT_BEF_TAX"]
-    if "PPN" not in coretax_2.columns and "TAX_AMOUNT" in coretax_2.columns:
-        coretax_2["PPN"] = coretax_2["TAX_AMOUNT"]
-
-    if "NAMA_PEMBELI" in coretax_2.columns:
-        coretax_2["CUSTOMER"] = coretax_2["NAMA_PEMBELI"]
-    elif "CUSTOMER_NAME" in coretax_2.columns:
-        coretax_2["CUSTOMER"] = coretax_2["CUSTOMER_NAME"]
-    else:
-        coretax_2["CUSTOMER"] = None
-
-    coretax_2["FP_STATUS"] = "FP Tidak Digunggung"
-
-    if "DEPT" in coretax_1.columns:
-        coretax_1["CUSTOMER"] = coretax_1["DEPT"]
-    elif "CUSTOMER_NAME" in coretax_1.columns:
-        coretax_1["CUSTOMER"] = coretax_1["CUSTOMER_NAME"]
-    else:
-        coretax_1["CUSTOMER"] = None
-
-    coretax_1["FP_STATUS"] = "FP Digunggung"
+    # --- Tidak Digunggung
+    coretax_2 = _ensure_column_from_aliases(
+        coretax_2, "DPP", ["DPP", "AMOUNT_BEF_TAX"], required=False
+    )
+    coretax_2 = _ensure_column_from_aliases(
+        coretax_2, "PPN", ["PPN", "TAX_AMOUNT"], required=False
+    )
+    coretax_2 = _ensure_column_from_aliases(
+        coretax_2, "CUSTOMER", ["CUSTOMER", "NAMA_PEMBELI", "CUSTOMER_NAME"]
+    )
+    coretax_2 = _ensure_column_from_aliases(
+        coretax_2, "FP_STATUS", ["FP_STATUS", "STATUS_FAKTUR", "TAX_STATUS"]
+    )
+    coretax_2["FP_STATUS"] = coretax_2["FP_STATUS"].fillna("FP Tidak Digunggung")
 
     # 4) Bersihin key + convert angka
     for df in (coretax_1, coretax_2):
@@ -281,8 +325,8 @@ def compare_files(
 
         def get_gl_amount(row):
             # Ambil nominal dari GL sesuai rumus Difference kamu
-            if str(row.get("Account Name", "")).strip() == "Sales Return":
-                return float(row.get("Debit Amount", 0))
+            if str(row.get("ACCOUNT_NAME", "")).strip() == "Sales Return":
+                return float(row.get("DEBIT_AMOUNT", 0))
             else:
                 return float(row.get("Nett", 0))
 
@@ -330,14 +374,18 @@ def compare_files(
     # Aggregate the combined coretax data
     coretax_agg = coretax_combined.groupby("NO_VOUCHER", as_index=False).agg(agg_map)
 
-    # 8) Debugging step: Check columns in Coretax_2
+    # 8) Tentukan kolom nomor faktur pajak yang tersedia di Coretax
     print("Columns in Coretax_2:", coretax_2.columns)
+    nomor_faktur_pajak_col = None
+    for candidate in ["NOMOR_FAKTUR_PAJAK", "NO_FP_MODIF"]:
+        if candidate in coretax_2.columns:
+            nomor_faktur_pajak_col = candidate
+            break
 
-    # 9) Debugging: Check if 'NO FP MODIF' exists in coretax_2
-    if "NO FP MODIF" in coretax_2.columns:
-        print("NO FP MODIF exists in Coretax_2.")
+    if nomor_faktur_pajak_col:
+        print(f"Kolom nomor faktur pajak yang dipakai: {nomor_faktur_pajak_col}")
     else:
-        print("NO FP MODIF NOT found in Coretax_2")
+        print("Kolom nomor faktur pajak tidak ditemukan di Coretax_2")
 
     # 10) Merge
     merged = pd.merge(
@@ -352,10 +400,10 @@ def compare_files(
 
     # 11) Compute Difference based on account type
     merged["Debit Amount"] = pd.to_numeric(
-        merged["Debit Amount"], errors="coerce"
+        merged["DEBIT_AMOUNT"], errors="coerce"
     ).fillna(0)
     merged["Credit Amount"] = pd.to_numeric(
-        merged["Credit Amount"], errors="coerce"
+        merged["CREDIT_AMOUNT"], errors="coerce"
     ).fillna(0)
 
     # Apply the Net calculation based on the account type
@@ -382,25 +430,20 @@ def compare_files(
     merged["Customer"] = merged["CUSTOMER"]
     merged.loc[merged["_merge"] != "both", "Customer"] = None
 
-    # Debugging: Check if 'NO_FP_MODIF' exists in coretax_2
-    print(
-        "Cek apakah 'NO_FP_MODIF' ada di coretax_2:", "NO_FP_MODIF" in coretax_2.columns
-    )
-    if "NO_FP_MODIF" in coretax_2.columns:
-        print(
-            coretax_2["NO_FP_MODIF"].head()
-        )  # Menampilkan beberapa nilai untuk memastikan kolom ada
+    # Debugging: tampilkan beberapa data nomor faktur pajak bila kolom tersedia
+    if nomor_faktur_pajak_col:
+        print(coretax_2[nomor_faktur_pajak_col].head())
     else:
-        print("Kolom 'NO_FP_MODIF' tidak ditemukan di Coretax_2")
+        print("Kolom nomor faktur pajak tidak ditemukan di coretax_2")
 
     print("Setelah merge, kolom di merged:", merged.columns)
 
-    # Jika kolom 'NO_FP_MODIF' ada di coretax_2, tambahkan ke merged
-    if "NO_FP_MODIF" in coretax_2.columns:
+    # Jika kolom nomor faktur pajak ada di coretax_2, tambahkan ke merged
+    if nomor_faktur_pajak_col:
         # PENTING: Drop duplicate agar tidak terjadi ledakan data (Cartesian product) saat merge
-        coretax_2_unique = coretax_2[["NO_VOUCHER", "NO_FP_MODIF"]].drop_duplicates(
-            subset=["NO_VOUCHER"]
-        )
+        coretax_2_unique = coretax_2[
+            ["NO_VOUCHER", nomor_faktur_pajak_col]
+        ].drop_duplicates(subset=["NO_VOUCHER"])
         merged = pd.merge(
             merged,
             coretax_2_unique,
@@ -409,9 +452,12 @@ def compare_files(
             how="left",
             suffixes=("", "_from_coretax2"),
         )
-        print("Setelah merge NO_FP_MODIF, kolom di merged:", merged.columns)
+        merged = merged.rename(
+            columns={nomor_faktur_pajak_col: "NOMOR_FAKTUR_PAJAK"}
+        )
+        print("Setelah merge NOMOR_FAKTUR_PAJAK, kolom di merged:", merged.columns)
     else:
-        merged["NO_FP_MODIF"] = None  # Atur sebagai None jika kolom tidak ada
+        merged["NOMOR_FAKTUR_PAJAK"] = None  # Atur sebagai None jika kolom tidak ada
 
     # 13) Before filling NaN, convert categorical columns to string type
     for column in merged.columns:
@@ -463,6 +509,29 @@ def compare_files(
             name = name.replace(ch, '_')
         return name.strip()[:31]
 
+    def _ensure_table_headers_are_strings(
+        worksheet, header_row_idx: int, first_col_idx: int, last_col_idx: int
+    ):
+        seen_headers = set()
+
+        for col_idx in range(first_col_idx, last_col_idx + 1):
+            cell = worksheet.cell(header_row_idx, col_idx)
+            header_value = cell.value
+
+            if header_value is None or str(header_value).strip() == "":
+                header_text = f"Column_{col_idx}"
+            else:
+                header_text = str(header_value).strip()
+
+            original_header_text = header_text
+            suffix = 1
+            while header_text in seen_headers:
+                suffix += 1
+                header_text = f"{original_header_text}_{suffix}"
+
+            cell.value = header_text
+            seen_headers.add(header_text)
+
     # --- PERBAIKAN: PRE-CALCULATE DATA UNTUK MENCEGAH LOOPING LAMBAT ---
     print("Menyiapkan dictionary untuk mempercepat proses perhitungan...")
 
@@ -490,7 +559,7 @@ def compare_files(
     first_sheet = True
 
     # Group by Account Name, pertahankan urutan kemunculan
-    account_groups = merged.groupby("Account Name", sort=False)
+    account_groups = merged.groupby("ACCOUNT_NAME", sort=False)
 
     total_rows_to_write = len(merged)
     rows_written = 0
@@ -529,7 +598,7 @@ def compare_files(
                 r = start_row + local_i
                 row = chunk_df.iloc[local_i]
 
-                v_bal = _parse_id_number(row.get("Balance", 0))
+                v_bal = _parse_id_number(row.get("BALANCE", 0))
 
                 # --- PERBAIKAN: Bersihkan NaN agar tidak dianggap teks "nan" ---
                 voucher_no = str(row.get("NO_VOUCHER", "-")).strip()
@@ -560,7 +629,7 @@ def compare_files(
                     row_dpp = 0.0
                     row_ppn = 0.0
 
-                    if row["Account Name"] == "Sales Return":
+                    if row["ACCOUNT_NAME"] == "Sales Return":
                         row_diff = -(float(row_debit) + row_dpp)
                         # Rumus Excel: -(Debit + DPP)
                         row_diff_formula = f"=-(G{r} + O{r})" 
@@ -582,11 +651,11 @@ def compare_files(
                         total_gl_net = float(totals.get("total_gl_net", 0))
                         total_gl_debit = float(totals.get("total_gl_debit", 0))
 
-                        if row["Account Name"] == "Sales Return":
+                        if row["ACCOUNT_NAME"] == "Sales Return":
                             row_diff = -(float(total_gl_debit) + row_dpp)
                             # Karena total_gl_debit adalah gabungan banyak baris, angkanya kita print mati, tapi DPP tetap referensi sel O
                             row_diff_formula = f"=-({total_gl_debit} + O{r})"
-                        elif row["Account Name"] in ["Repair Service Income", "Sales Price Protection", "Sales"]:
+                        elif row["ACCOUNT_NAME"] in ["Repair Service Income", "Sales Price Protection", "Sales"]:
                             row_diff = float(total_gl_net) - row_dpp
                             row_diff_formula = f"={total_gl_net} - O{r}"
                         else:
@@ -600,10 +669,10 @@ def compare_files(
 
                         status = "Unique"
                     else:
-                        if row["Account Name"] == "Sales Return":
+                        if row["ACCOUNT_NAME"] == "Sales Return":
                             row_diff = -(float(row_debit) + row_dpp)
                             row_diff_formula = f"=-(G{r} + O{r})"
-                        elif row["Account Name"] in ["Repair Service Income", "Sales Price Protection", "Sales"]:
+                        elif row["ACCOUNT_NAME"] in ["Repair Service Income", "Sales Price Protection", "Sales"]:
                             row_diff = float(row_net) - row_dpp
                             row_diff_formula = f"=I{r} - O{r}"
                         else:
@@ -629,22 +698,22 @@ def compare_files(
                         status = "Tidak ada di Coretax"
 
                 # --- PROSES CETAK KE SHEET ---
-                current_ws.cell(r, 1).value = row.get("Account No.")
-                current_ws.cell(r, 2).value = row.get("Account Name")
-                current_ws.cell(r, 3).value = row.get("Date")
-                current_ws.cell(r, 4).value = row.get("Voucher Category")
-                current_ws.cell(r, 5).value = row.get("Voucher No.")
-                current_ws.cell(r, 6).value = row.get("Description")
+                current_ws.cell(r, 1).value = row.get("ACCOUNT_NO")
+                current_ws.cell(r, 2).value = row.get("ACCOUNT_NAME")
+                current_ws.cell(r, 3).value = row.get("DATE")
+                current_ws.cell(r, 4).value = row.get("VOUCHER_CATEGORY")
+                current_ws.cell(r, 5).value = row.get("VOUCHER_NO")
+                current_ws.cell(r, 6).value = row.get("DESCRIPTION")
                 current_ws.cell(r, 7).value = row_debit
                 current_ws.cell(r, 8).value = row_credit
                 current_ws.cell(r, 9).value = row_net
-                current_ws.cell(r, 10).value = row.get("Direction")
+                current_ws.cell(r, 10).value = row.get("DIRECTION")
                 current_ws.cell(r, 11).value = v_bal
 
                 current_ws.cell(r, 13).value = voucher_no if voucher_no != "-" else None
                 current_ws.cell(r, 14).value = (
-                    row.get("NO_FP_MODIF")
-                    if str(row.get("NO_FP_MODIF")) not in ["nan", "None"]
+                    row.get("NOMOR_FAKTUR_PAJAK")
+                    if str(row.get("NOMOR_FAKTUR_PAJAK")) not in ["nan", "None"]
                     else None
                 )
                 current_ws.cell(r, 15).value = row_dpp
@@ -725,6 +794,7 @@ def compare_files(
             continue
 
         target_ws = wb[ws_name]
+        _ensure_table_headers_are_strings(target_ws, header_row, 1, 20)
         last_data_row = start_row + row_count - 1
         table_ref = f"{first_col}{header_row}:{last_col}{last_data_row}"
         table_name = f"DataTable{table_idx}"
@@ -742,7 +812,11 @@ def compare_files(
     _emit_progress(96, "Saving comparison workbook...")
 
     # Save the workbook (preserves template formatting + all sheets)
-    out_name = f"Draft_Updated_Output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    unique_suffix = uuid.uuid4().hex[:8]
+    out_name = (
+        f"Draft_Updated_Output_"
+        f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{unique_suffix}.xlsx"
+    )
     out_path = os.path.join(output_dir, out_name)
     wb.save(out_path)
     print(f"Saved output to {out_path}")
@@ -752,17 +826,3 @@ def compare_files(
     sheet_names = wb.sheetnames
 
     return out_path, out_name, sheet_names
-
-
-def delete_all_uploaded_files(app):
-    try:
-        # Cek jika direktori upload ada
-        if os.path.exists(app.config["UPLOAD_FOLDER"]):
-            # Hapus semua file dalam folder upload
-            for filename in os.listdir(app.config["UPLOAD_FOLDER"]):
-                file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-                if os.path.isfile(file_path):
-                    os.remove(file_path)  # Hapus file
-                    print(f"Uploaded file deleted: {file_path}")
-    except Exception as e:
-        print(f"Error deleting uploaded files: {e}")

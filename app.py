@@ -46,6 +46,7 @@ app.config["OUTPUT_COMPARE_FOLDER"] = os.path.join(OUTPUT_DIR, "compare")
 app.config["OUTPUT_RECAP_FOLDER"] = os.path.join(OUTPUT_DIR, "recap")
 app.config["UPLOAD_FOLDER"] = os.path.join(BASE_DIR, "uploads")
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 86400
+app.config["CLEANUP_STALE_OUTPUT_FILES"] = None
 
 # 2. Pastikan folder fisik dibuat di server
 os.makedirs(app.config["OUTPUT_COMPARE_FOLDER"], exist_ok=True)
@@ -55,6 +56,8 @@ os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 COMPARE_JOBS = {}
 COMPARE_JOBS_LOCK = threading.Lock()
 COMPARE_JOB_TTL_SECONDS = 1800
+UPLOAD_FILE_TTL_SECONDS = 7200
+OUTPUT_FILE_TTL_SECONDS = 365 * 24 * 60 * 60
 
 
 def _delete_uploaded_files(file_paths):
@@ -64,6 +67,55 @@ def _delete_uploaded_files(file_paths):
                 os.remove(file_path)
         except Exception as e:
             print(f"Error deleting file {file_path}: {e}")
+
+
+def _cleanup_stale_uploaded_files(upload_folder, max_age_seconds):
+    now = time.time()
+
+    try:
+        for filename in os.listdir(upload_folder):
+            file_path = os.path.join(upload_folder, filename)
+            if not os.path.isfile(file_path):
+                continue
+
+            try:
+                file_age_seconds = now - os.path.getmtime(file_path)
+            except OSError:
+                continue
+
+            if file_age_seconds > max_age_seconds:
+                try:
+                    os.remove(file_path)
+                    print(f"Removed stale upload file: {file_path}")
+                except Exception as e:
+                    print(f"Error deleting stale upload file {file_path}: {e}")
+    except FileNotFoundError:
+        return
+
+
+def _cleanup_stale_output_files(output_folders, max_age_seconds):
+    now = time.time()
+
+    for output_folder in output_folders:
+        try:
+            for filename in os.listdir(output_folder):
+                file_path = os.path.join(output_folder, filename)
+                if not os.path.isfile(file_path):
+                    continue
+
+                try:
+                    file_age_seconds = now - os.path.getmtime(file_path)
+                except OSError:
+                    continue
+
+                if file_age_seconds > max_age_seconds:
+                    try:
+                        os.remove(file_path)
+                        print(f"Removed stale output file: {file_path}")
+                    except Exception as e:
+                        print(f"Error deleting stale output file {file_path}: {e}")
+        except FileNotFoundError:
+            continue
 
 
 def _cleanup_compare_jobs():
@@ -223,6 +275,21 @@ def _get_file_modified_time(file_path):
         return 0.0
 
 
+app.config["UPLOAD_FILE_TTL_SECONDS"] = UPLOAD_FILE_TTL_SECONDS
+app.config["OUTPUT_FILE_TTL_SECONDS"] = OUTPUT_FILE_TTL_SECONDS
+app.config["CLEANUP_STALE_OUTPUT_FILES"] = _cleanup_stale_output_files
+_cleanup_stale_uploaded_files(
+    app.config["UPLOAD_FOLDER"], app.config["UPLOAD_FILE_TTL_SECONDS"]
+)
+_cleanup_stale_output_files(
+    [
+        app.config["OUTPUT_COMPARE_FOLDER"],
+        app.config["OUTPUT_RECAP_FOLDER"],
+    ],
+    app.config["OUTPUT_FILE_TTL_SECONDS"],
+)
+
+
 @app.after_request
 def set_static_cache_headers(response):
     if request.path.startswith("/static/"):
@@ -273,6 +340,16 @@ def download_template(template_type):
 @app.route("/upload/start", methods=["POST"])
 def start_upload_file():
     _cleanup_compare_jobs()
+    _cleanup_stale_uploaded_files(
+        app.config["UPLOAD_FOLDER"], app.config["UPLOAD_FILE_TTL_SECONDS"]
+    )
+    _cleanup_stale_output_files(
+        [
+            app.config["OUTPUT_COMPARE_FOLDER"],
+            app.config["OUTPUT_RECAP_FOLDER"],
+        ],
+        app.config["OUTPUT_FILE_TTL_SECONDS"],
+    )
 
     if (
         "k3_file" not in request.files
@@ -392,6 +469,14 @@ def stream_upload_progress(job_id):
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
+    _cleanup_stale_output_files(
+        [
+            app.config["OUTPUT_COMPARE_FOLDER"],
+            app.config["OUTPUT_RECAP_FOLDER"],
+        ],
+        app.config["OUTPUT_FILE_TTL_SECONDS"],
+    )
+
     if (
         "k3_file" not in request.files
         or "coretax_file_1" not in request.files
@@ -625,6 +710,14 @@ def download_file(filename):
 @app.route('/ekualisasi-pph23', methods=['GET', 'POST'])
 def ekualisasi_pph23_route():
     if request.method == 'POST':
+        _cleanup_stale_output_files(
+            [
+                app.config["OUTPUT_COMPARE_FOLDER"],
+                app.config["OUTPUT_RECAP_FOLDER"],
+            ],
+            app.config["OUTPUT_FILE_TTL_SECONDS"],
+        )
+
         # 1. Cek ketersediaan file
         if 'file_bupot' not in request.files or 'file_voucher' not in request.files:
             return "No file part", 400

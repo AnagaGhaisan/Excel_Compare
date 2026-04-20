@@ -38,6 +38,30 @@ def _delete_recap_uploaded_files(file_paths):
             print(f"Error deleting file {file_path}: {e}")
 
 
+def _cleanup_stale_recap_uploaded_files(upload_folder, max_age_seconds):
+    now = time.time()
+
+    try:
+        for filename in os.listdir(upload_folder):
+            file_path = os.path.join(upload_folder, filename)
+            if not os.path.isfile(file_path):
+                continue
+
+            try:
+                file_age_seconds = now - os.path.getmtime(file_path)
+            except OSError:
+                continue
+
+            if file_age_seconds > max_age_seconds:
+                try:
+                    os.remove(file_path)
+                    print(f"Removed stale upload file: {file_path}")
+                except Exception as e:
+                    print(f"Error deleting stale upload file {file_path}: {e}")
+    except FileNotFoundError:
+        return
+
+
 def _cleanup_recap_jobs():
     now = time.time()
     with RECAP_JOBS_LOCK:
@@ -552,6 +576,16 @@ def upload_recap():
 @recap_bp.route("/upload_recap/start", methods=["POST"])
 def start_upload_recap():
     _cleanup_recap_jobs()
+    _cleanup_stale_recap_uploaded_files(
+        current_app.config["UPLOAD_FOLDER"],
+        current_app.config.get("UPLOAD_FILE_TTL_SECONDS", 7200),
+    )
+    cleanup_output_files = current_app.config.get("CLEANUP_STALE_OUTPUT_FILES")
+    if cleanup_output_files:
+        cleanup_output_files(
+            [current_app.config["OUTPUT_RECAP_FOLDER"]],
+            current_app.config.get("OUTPUT_FILE_TTL_SECONDS", 365 * 24 * 60 * 60),
+        )
 
     if "k3_file" not in request.files or "ppn_file" not in request.files:
         return jsonify({"error": "No file part"}), 400
