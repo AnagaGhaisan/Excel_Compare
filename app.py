@@ -14,7 +14,7 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
 from functools import lru_cache
-from helpers import compare_files, allowed_file
+from helpers import compare_files, allowed_file, get_gl_account_options
 from recap_handler import recap_bp
 import pandas as pd
 from waitress import serve
@@ -184,8 +184,23 @@ def _build_comparison_redirect_url(file_name, sheet_list):
     return f"/comparison?{query}"
 
 
+def _parse_account_formula_map(raw_value):
+    if not raw_value:
+        return {}
+
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid account formula configuration: {e}") from e
+
+    if not isinstance(parsed, dict):
+        raise ValueError("Account formula configuration must be a JSON object.")
+
+    return parsed
+
+
 def _process_comparison_job(
-    job_id, k3_file_path, coretax_file_path_1, coretax_file_path_2
+    job_id, k3_file_path, coretax_file_path_1, coretax_file_path_2, account_formula_map
 ):
     _update_compare_job(
         job_id,
@@ -235,6 +250,7 @@ def _process_comparison_job(
             coretax_sheets_2,
             app.config["OUTPUT_COMPARE_FOLDER"],
             progress_callback=_on_compare_progress,
+            account_formula_map=account_formula_map,
         )
 
         redirect_url = _build_comparison_redirect_url(file_name, sheet_list)
@@ -361,6 +377,12 @@ def start_upload_file():
     k3_file = request.files["k3_file"]
     coretax_file_1 = request.files["coretax_file_1"]
     coretax_file_2 = request.files["coretax_file_2"]
+    try:
+        account_formula_map = _parse_account_formula_map(
+            request.form.get("account_formulas")
+        )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     if (
         k3_file.filename == ""
@@ -408,7 +430,13 @@ def start_upload_file():
 
     worker = threading.Thread(
         target=_process_comparison_job,
-        args=(job_id, k3_file_path, coretax_file_path_1, coretax_file_path_2),
+        args=(
+            job_id,
+            k3_file_path,
+            coretax_file_path_1,
+            coretax_file_path_2,
+            account_formula_map,
+        ),
         daemon=True,
     )
     worker.start()
@@ -467,6 +495,26 @@ def stream_upload_progress(job_id):
     return response
 
 
+@app.route("/upload/accounts", methods=["POST"])
+def upload_account_options():
+    if "k3_file" not in request.files:
+        return jsonify({"error": "GL file is required."}), 400
+
+    k3_file = request.files["k3_file"]
+    if k3_file.filename == "":
+        return jsonify({"error": "GL file is required."}), 400
+
+    if not allowed_file(k3_file.filename, app.config["ALLOWED_EXTENSIONS"]):
+        return jsonify({"error": "Invalid GL file type."}), 400
+
+    try:
+        k3_sheets = pd.read_excel(k3_file, sheet_name=None, header=1)
+        accounts = get_gl_account_options(k3_sheets)
+        return jsonify({"accounts": accounts}), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to read GL accounts: {str(e)}"}), 400
+
+
 @app.route("/upload", methods=["POST"])
 def upload_file():
     _cleanup_stale_output_files(
@@ -487,6 +535,12 @@ def upload_file():
     k3_file = request.files["k3_file"]
     coretax_file_1 = request.files["coretax_file_1"]
     coretax_file_2 = request.files["coretax_file_2"]
+    try:
+        account_formula_map = _parse_account_formula_map(
+            request.form.get("account_formulas")
+        )
+    except ValueError as e:
+        return str(e), 400
 
     # Check if files have been selected
     if (
@@ -561,7 +615,11 @@ def upload_file():
 
         # 3. Jalankan proses perbandingan (Cukup panggil SATU kali saja)
         full_path, file_name, sheet_list = compare_files(
-            k3_sheets, coretax_sheets_1, coretax_sheets_2, output_dir
+            k3_sheets,
+            coretax_sheets_1,
+            coretax_sheets_2,
+            output_dir,
+            account_formula_map=account_formula_map,
         )
 
         _delete_uploaded_files([k3_file_path, coretax_file_path_1, coretax_file_path_2])

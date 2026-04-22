@@ -14,6 +14,31 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DRAFT_TEMPLATE_PATH = os.path.join(BASE_DIR, "static/template/Draft Output.xlsx")
 
+FORMULA_CREDIT_MINUS_DEBIT = "credit_minus_debit"
+FORMULA_DEBIT_MINUS_CREDIT = "debit_minus_credit"
+FORMULA_NEGATIVE_DEBIT_MINUS_CREDIT = "negative_debit_minus_credit"
+
+FORMULA_ALIASES = {
+    FORMULA_CREDIT_MINUS_DEBIT: FORMULA_CREDIT_MINUS_DEBIT,
+    FORMULA_DEBIT_MINUS_CREDIT: FORMULA_DEBIT_MINUS_CREDIT,
+    FORMULA_NEGATIVE_DEBIT_MINUS_CREDIT: FORMULA_NEGATIVE_DEBIT_MINUS_CREDIT,
+    "-debit + credit": FORMULA_CREDIT_MINUS_DEBIT,
+    "debit - credit": FORMULA_DEBIT_MINUS_CREDIT,
+    "-(debit - credit)": FORMULA_NEGATIVE_DEBIT_MINUS_CREDIT,
+}
+
+ACCOUNT_FORMULA_DEFAULTS = {
+    "Interest Bank Income": FORMULA_CREDIT_MINUS_DEBIT,
+    "Other Income": FORMULA_CREDIT_MINUS_DEBIT,
+    "Rental Income": FORMULA_CREDIT_MINUS_DEBIT,
+    "Repair Service Income": FORMULA_CREDIT_MINUS_DEBIT,
+    "Sales": FORMULA_CREDIT_MINUS_DEBIT,
+    "Sales Price Protection": FORMULA_CREDIT_MINUS_DEBIT,
+    "POP Expense": FORMULA_DEBIT_MINUS_CREDIT,
+    "Promotion Gift": FORMULA_DEBIT_MINUS_CREDIT,
+    "Sales Return": FORMULA_NEGATIVE_DEBIT_MINUS_CREDIT,
+}
+
 # Helper function to check file extensions
 def allowed_file(filename, allowed_extensions):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in allowed_extensions
@@ -120,6 +145,107 @@ def _ensure_column_from_aliases(
     return df
 
 
+def _prepare_k3_dataframe(k3_sheets: dict) -> pd.DataFrame:
+    k3 = pd.concat(k3_sheets.values(), ignore_index=True)
+    k3 = _normalize_columns(k3)
+    k3 = _ensure_column_from_aliases(
+        k3, "ACCOUNT_NO", ["ACCOUNT_NO", "ACCOUNT_NO_"], required=True
+    )
+    k3 = _ensure_column_from_aliases(
+        k3, "ACCOUNT_NAME", ["ACCOUNT_NAME"], required=True
+    )
+    k3 = _ensure_column_from_aliases(k3, "DATE", ["DATE"], required=True)
+    k3 = _ensure_column_from_aliases(
+        k3, "VOUCHER_CATEGORY", ["VOUCHER_CATEGORY"], required=True
+    )
+    k3 = _ensure_column_from_aliases(k3, "VOUCHER_NO", ["VOUCHER_NO"], required=True)
+    k3 = _ensure_column_from_aliases(k3, "DESCRIPTION", ["DESCRIPTION"], required=True)
+    k3 = _ensure_column_from_aliases(
+        k3, "DEBIT_AMOUNT", ["DEBIT_AMOUNT"], required=True
+    )
+    k3 = _ensure_column_from_aliases(
+        k3, "CREDIT_AMOUNT", ["CREDIT_AMOUNT"], required=True
+    )
+    k3 = _ensure_column_from_aliases(k3, "DIRECTION", ["DIRECTION"], required=False)
+    k3 = _ensure_column_from_aliases(k3, "BALANCE", ["BALANCE"], required=False)
+    return k3
+
+
+def normalize_formula_key(formula_key: str | None) -> str | None:
+    if formula_key is None:
+        return None
+
+    normalized = FORMULA_ALIASES.get(str(formula_key).strip())
+    return normalized
+
+
+def _get_default_formula_for_account(account_name: str, direction: str = "") -> str:
+    if account_name in ACCOUNT_FORMULA_DEFAULTS:
+        return ACCOUNT_FORMULA_DEFAULTS[account_name]
+
+    direction_normalized = str(direction).strip().lower()
+    if direction_normalized in {"credit", "kredit", "cr"}:
+        return FORMULA_CREDIT_MINUS_DEBIT
+    if direction_normalized in {"debit", "dr"}:
+        return FORMULA_DEBIT_MINUS_CREDIT
+
+    return FORMULA_DEBIT_MINUS_CREDIT
+
+
+def normalize_account_formula_map(account_formula_map: dict | None) -> dict[str, str]:
+    normalized_map = {}
+    if not account_formula_map:
+        return normalized_map
+
+    for account_name, formula_key in account_formula_map.items():
+        normalized_formula = normalize_formula_key(formula_key)
+        if normalized_formula:
+            normalized_map[str(account_name).strip()] = normalized_formula
+
+    return normalized_map
+
+
+def get_gl_account_options(k3_sheets: dict) -> list[dict[str, str]]:
+    k3 = _prepare_k3_dataframe(k3_sheets)
+    options = []
+
+    for account_name in k3["ACCOUNT_NAME"].dropna().astype(str).str.strip().unique():
+        if not account_name or account_name.lower() in {"nan", "none"}:
+            continue
+
+        account_rows = k3[k3["ACCOUNT_NAME"].astype(str).str.strip() == account_name]
+        direction = ""
+        if "DIRECTION" in account_rows.columns:
+            direction_candidates = (
+                account_rows["DIRECTION"].dropna().astype(str).str.strip().tolist()
+            )
+            direction = next((value for value in direction_candidates if value), "")
+
+        options.append(
+            {
+                "account_name": account_name,
+                "direction": direction,
+                "default_formula": _get_default_formula_for_account(
+                    account_name, direction
+                ),
+            }
+        )
+
+    return options
+
+
+def _calculate_net_by_formula(debit: float, credit: float, formula_key: str) -> float:
+    if formula_key == FORMULA_CREDIT_MINUS_DEBIT:
+        return -debit + credit
+    if formula_key == FORMULA_NEGATIVE_DEBIT_MINUS_CREDIT:
+        return -(debit - credit)
+    return debit - credit
+
+
+def _calculate_difference_from_net(net_value: float, dpp_value: float) -> float:
+    return float(net_value) - float(dpp_value)
+
+
 def _parse_id_number(x):
     """
     Aman untuk angka dengan format Indonesia:
@@ -152,31 +278,17 @@ def _parse_id_number(x):
         return np.nan
 
 
-def calculate_net(row):
+def calculate_net(row, account_formula_map: dict | None = None):
     debit = float(row.get("DEBIT_AMOUNT", row.get("Debit Amount", 0)))
     credit = float(row.get("CREDIT_AMOUNT", row.get("Credit Amount", 0)))
     acc_name = str(row.get("ACCOUNT_NAME", row.get("Account Name", ""))).strip()
+    direction = str(row.get("DIRECTION", row.get("Direction", ""))).strip()
 
-    # Pendapatan: -Debit + Credit
-    if acc_name in [
-        "Interest Bank Income",
-        "Other Income",
-        "Rental Income",
-        "Repair Service Income",
-        "Sales",
-        "Sales Price Protection",
-    ]:
-        return -debit + credit
-
-    # Beban: Debit - Credit
-    elif acc_name in ["POP Expense", "Promotion Gift"]:
-        return debit - credit
-
-    # Sales Return: -Debit - Credit (Sesuai -AA10-AB10)
-    elif acc_name == "Sales Return":
-        return -(debit - credit)
-
-    return 0
+    normalized_formula_map = account_formula_map or {}
+    formula_key = normalized_formula_map.get(acc_name) or _get_default_formula_for_account(
+        acc_name, direction
+    )
+    return _calculate_net_by_formula(debit, credit, formula_key)
 
 
 def compare_files(
@@ -185,6 +297,7 @@ def compare_files(
     coretax_sheets_2: dict,
     output_dir: str,
     progress_callback=None,
+    account_formula_map: dict | None = None,
 ) -> str:
     # k3_sheets, coretax_sheets_1, coretax_sheets_2 are already dicts of {sheet_name: DataFrame}
     # from pd.read_excel(..., sheet_name=None) in app.py — no need to re-read.
@@ -199,29 +312,8 @@ def compare_files(
 
     _emit_progress(0, "Preparing comparison data...")
 
-    # 1) Concatenate all K3 sheets
-    k3 = pd.concat(k3_sheets.values(), ignore_index=True)
-    k3 = _normalize_columns(k3)
-    k3 = _ensure_column_from_aliases(
-        k3, "ACCOUNT_NO", ["ACCOUNT_NO", "ACCOUNT_NO_"], required=True
-    )
-    k3 = _ensure_column_from_aliases(
-        k3, "ACCOUNT_NAME", ["ACCOUNT_NAME"], required=True
-    )
-    k3 = _ensure_column_from_aliases(k3, "DATE", ["DATE"], required=True)
-    k3 = _ensure_column_from_aliases(
-        k3, "VOUCHER_CATEGORY", ["VOUCHER_CATEGORY"], required=True
-    )
-    k3 = _ensure_column_from_aliases(k3, "VOUCHER_NO", ["VOUCHER_NO"], required=True)
-    k3 = _ensure_column_from_aliases(k3, "DESCRIPTION", ["DESCRIPTION"], required=True)
-    k3 = _ensure_column_from_aliases(
-        k3, "DEBIT_AMOUNT", ["DEBIT_AMOUNT"], required=True
-    )
-    k3 = _ensure_column_from_aliases(
-        k3, "CREDIT_AMOUNT", ["CREDIT_AMOUNT"], required=True
-    )
-    k3 = _ensure_column_from_aliases(k3, "DIRECTION", ["DIRECTION"], required=False)
-    k3 = _ensure_column_from_aliases(k3, "BALANCE", ["BALANCE"], required=False)
+    normalized_formula_map = normalize_account_formula_map(account_formula_map)
+    k3 = _prepare_k3_dataframe(k3_sheets)
     print(f"K3 combined shape: {k3.shape}, columns: {list(k3.columns)}")
     _emit_progress(8, "Normalizing GL source data...")
 
@@ -234,7 +326,9 @@ def compare_files(
     )
     # Bersihkan spasi agar tidak meleset saat merge
     k3["No Faktur (key)"] = k3["No Faktur (key)"].astype(str).str.strip()
-    k3["Nett"] = k3.apply(calculate_net, axis=1)
+    k3["Nett"] = k3.apply(
+        lambda row: calculate_net(row, normalized_formula_map), axis=1
+    )
 
     # 2) Normalize columns for Coretax (biar NO VOUCHER / DOC_NO kebaca konsisten)
     coretax_1 = pd.concat(
@@ -324,11 +418,8 @@ def compare_files(
     if is_dup_k3.any():
 
         def get_gl_amount(row):
-            # Ambil nominal dari GL sesuai rumus Difference kamu
-            if str(row.get("ACCOUNT_NAME", "")).strip() == "Sales Return":
-                return float(row.get("DEBIT_AMOUNT", 0))
-            else:
-                return float(row.get("Nett", 0))
+            # Ambil nominal GL sesuai formula akun yang dipilih user
+            return float(row.get("Nett", 0))
 
         # Terapkan format angka yang sama dan gabungkan ke No Faktur GL
         gl_amounts = k3[is_dup_k3].apply(get_gl_amount, axis=1).apply(format_amount)
@@ -407,16 +498,16 @@ def compare_files(
     ).fillna(0)
 
     # Apply the Net calculation based on the account type
-    merged["Net"] = merged.apply(calculate_net, axis=1)
+    merged["Net"] = merged.apply(
+        lambda row: calculate_net(row, normalized_formula_map), axis=1
+    )
 
     merged["DPP"] = pd.to_numeric(merged["DPP"], errors="coerce").fillna(0)
     merged["PPN"] = pd.to_numeric(merged["PPN"], errors="coerce").fillna(0)
 
-    # Logika baru untuk menghitung Difference
+    # Difference mengikuti formula Net akun yang dipilih user
     def calculate_difference(row):
-        return float(row["Net"]) - float(
-            row["DPP"]
-        )  # Menggunakan float, tanpa pembulatan
+        return _calculate_difference_from_net(row["Net"], row["DPP"])
 
     # Terapkan fungsi ke kolom Difference
     merged["Difference"] = merged.apply(calculate_difference, axis=1)
@@ -629,14 +720,9 @@ def compare_files(
                     row_dpp = 0.0
                     row_ppn = 0.0
 
-                    if row["ACCOUNT_NAME"] == "Sales Return":
-                        row_diff = -(float(row_debit) + row_dpp)
-                        # Rumus Excel: -(Debit + DPP)
-                        row_diff_formula = f"=-(G{r} + O{r})"
-                    else:
-                        row_diff = float(row_net)
-                        # Rumus Excel: Net
-                        row_diff_formula = f"=I{r}"
+                    row_diff = float(row_net)
+                    # Rumus Excel: Net
+                    row_diff_formula = f"=I{r}"
 
                     status = "Tidak ada di Coretax"
                     difference_total += row_diff
@@ -649,43 +735,19 @@ def compare_files(
                     if voucher_no_in_coretax:
                         totals = grouped_totals.get(voucher_no, {})
                         total_gl_net = float(totals.get("total_gl_net", 0))
-                        total_gl_debit = float(totals.get("total_gl_debit", 0))
-
-                        if row["ACCOUNT_NAME"] == "Sales Return":
-                            row_diff = -(float(total_gl_debit) + row_dpp)
-                            # Karena total_gl_debit adalah gabungan banyak baris, angkanya kita print mati, tapi DPP tetap referensi sel O
-                            row_diff_formula = f"=-({total_gl_debit} + O{r})"
-                        elif row["ACCOUNT_NAME"] in [
-                            "Repair Service Income",
-                            "Sales Price Protection",
-                            "Sales",
-                        ]:
-                            row_diff = float(total_gl_net) - row_dpp
-                            row_diff_formula = f"={total_gl_net} - O{r}"
+                        if total_gl_net == 0:
+                            row_diff = _calculate_difference_from_net(row_net, row_dpp)
+                            row_diff_formula = f"=I{r} - O{r}"
                         else:
-                            if total_gl_net == 0:
-                                row_diff = float(row_net - row_dpp)
-                                # Gunakan Net baris ini dikurangi DPP
-                                row_diff_formula = f"=I{r} - O{r}"
-                            else:
-                                row_diff = float(total_gl_net - row_dpp)
-                                row_diff_formula = f"={total_gl_net} - O{r}"
+                            row_diff = _calculate_difference_from_net(
+                                total_gl_net, row_dpp
+                            )
+                            row_diff_formula = f"={total_gl_net} - O{r}"
 
                         status = "Unique"
                     else:
-                        if row["ACCOUNT_NAME"] == "Sales Return":
-                            row_diff = -(float(row_debit) + row_dpp)
-                            row_diff_formula = f"=-(G{r} + O{r})"
-                        elif row["ACCOUNT_NAME"] in [
-                            "Repair Service Income",
-                            "Sales Price Protection",
-                            "Sales",
-                        ]:
-                            row_diff = float(row_net) - row_dpp
-                            row_diff_formula = f"=I{r} - O{r}"
-                        else:
-                            row_diff = float(row_net)
-                            row_diff_formula = f"=I{r}"
+                        row_diff = float(row_net)
+                        row_diff_formula = f"=I{r}"
                         status = "Tidak ada di Coretax"
 
                     dpp_total += row_dpp

@@ -74,6 +74,30 @@ class FlaskEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"No file part", response.data)
 
+    @patch("app.get_gl_account_options")
+    @patch("app.pd.read_excel")
+    def test_upload_accounts_returns_account_options(self, mock_read_excel, mock_get_accounts):
+        mock_read_excel.return_value = {"Sheet1": pd.DataFrame([{"x": 1}])}
+        mock_get_accounts.return_value = [
+            {
+                "account_name": "Sales",
+                "direction": "Credit",
+                "default_formula": "credit_minus_debit",
+            }
+        ]
+
+        data = {
+            "k3_file": (io.BytesIO(b"dummy"), "k3.xlsx"),
+        }
+        response = self.client.post(
+            "/upload/accounts", data=data, content_type="multipart/form-data"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(len(payload["accounts"]), 1)
+        self.assertEqual(payload["accounts"][0]["account_name"], "Sales")
+
     @patch("app._delete_uploaded_files")
     @patch("app.compare_files")
     @patch("app.pd.read_excel")
