@@ -395,6 +395,19 @@ def process_recap_2_files(source_path, ppn_path, output_dir, progress_callback=N
             worksheet.merge_range(6, 1, 6, 2, 'Peredaran Usaha cfm. SPT Tahunan PPh Badan', section_format)
             worksheet.write(7, 1, 'terdiri dari:', bold_text)
 
+            # Header grid bulanan.
+            ppn_label_col = 1
+            ppn_amount_col = 2
+            block_starts = [4 + 3 * idx for idx in range(len(unique_accounts))]
+            total_gl_col = block_starts[-1] + 3 if block_starts else 4
+            selisih_col = total_gl_col + 2
+            total_summary_label_start = max(ppn_label_col, total_gl_col)
+            total_summary_label_end = max(total_summary_label_start, selisih_col - 1)
+
+            # Pastikan kolom TOTAL dan Selisih cukup lebar walaupun posisinya dinamis.
+            worksheet.set_column(total_gl_col, total_gl_col, 18)
+            worksheet.set_column(selisih_col, selisih_col, 18)
+
             total_all_acc = 0
             for i, acc in enumerate(unique_accounts, start=1):
                 row_idx = 7 + i
@@ -412,19 +425,11 @@ def process_recap_2_files(source_path, ppn_path, output_dir, progress_callback=N
 
             total_top_row = 7 + len(unique_accounts) + 2
             worksheet.merge_range(
-                total_top_row, 1, total_top_row, 31,
+                total_top_row, total_summary_label_start, total_top_row, total_summary_label_end,
                 'Total Peredaran Usaha cfm. SPT Tahunan PPh Badan (Lihat Laporan Keuangan)',
                 section_right_format
             )
-            worksheet.write_blank(total_top_row, 32, None, section_right_format)
-            worksheet.write_number(total_top_row, 33, total_all_acc, total_line_num)
-
-            # Header grid bulanan.
-            ppn_label_col = 1
-            ppn_amount_col = 2
-            block_starts = [4 + 3 * idx for idx in range(len(unique_accounts))]
-            total_gl_col = block_starts[-1] + 3 if block_starts else 4
-            selisih_col = total_gl_col + 2
+            worksheet.write_number(total_top_row, selisih_col, total_all_acc, total_line_num)
 
             worksheet.merge_range(22, ppn_label_col, 23, ppn_amount_col, 'Penyerahan (lokal & Ekspor) cfm. SPT Masa PPN (DPP)', header_group_format)
 
@@ -478,15 +483,65 @@ def process_recap_2_files(source_path, ppn_path, output_dir, progress_callback=N
             else:
                 worksheet.write_number(total_monthly_row, selisih_col, grand_selisih, total_line_num)
 
-            worksheet.write(total_monthly_row + 2, 1, 'Adjustment Audit:', note_label_bold)
-            worksheet.write(total_monthly_row + 3, 1, 'RE Recon (Autior KAP)', note_label)
-            worksheet.write_number(total_monthly_row + 3, ppn_amount_col, 0, note_num)
-            worksheet.write(total_monthly_row + 4, 1, 'Adjustment (Auditor KAP)', note_label)
-            worksheet.write_number(total_monthly_row + 4, ppn_amount_col, 0, note_num)
-            worksheet.write(total_monthly_row + 6, 1, 'Total', note_label_bold)
-            worksheet.write_number(total_monthly_row + 6, ppn_amount_col, grand_ppn, note_num_bold)
+            left_adjustment_label_start_col = 1
+            left_adjustment_label_end_col = 2
+            left_adjustment_blank_col = 3
+            left_adjustment_value_col = 4
+
+            def _write_account_placeholders(row_idx, text_fmt, num_fmt):
+                for start_col in block_starts:
+                    worksheet.write_blank(row_idx, start_col, None, text_fmt)
+                    worksheet.write_blank(row_idx, start_col + 1, None, num_fmt)
+                worksheet.write_blank(row_idx, total_gl_col, None, num_fmt)
+                worksheet.write_blank(row_idx, selisih_col, None, num_fmt)
+
+            worksheet.merge_range(
+                total_monthly_row + 2,
+                left_adjustment_label_start_col,
+                total_monthly_row + 2,
+                left_adjustment_label_end_col,
+                'Adjustment Audit:',
+                note_label_bold,
+            )
+            worksheet.merge_range(
+                total_monthly_row + 3,
+                left_adjustment_label_start_col,
+                total_monthly_row + 3,
+                left_adjustment_label_end_col,
+                'RE Recon (Autior KAP)',
+                note_label,
+            )
+            _write_account_placeholders(total_monthly_row + 3, note_label, note_num)
+            worksheet.write_blank(total_monthly_row + 3, left_adjustment_blank_col, None, note_label)
+            worksheet.write_number(total_monthly_row + 3, left_adjustment_value_col, 0, note_num)
+            worksheet.merge_range(
+                total_monthly_row + 4,
+                left_adjustment_label_start_col,
+                total_monthly_row + 4,
+                left_adjustment_label_end_col,
+                'Adjustment (Auditor KAP)',
+                note_label,
+            )
+            _write_account_placeholders(total_monthly_row + 4, note_label, note_num)
+            worksheet.write_blank(total_monthly_row + 4, left_adjustment_blank_col, None, note_label)
+            worksheet.write_number(total_monthly_row + 4, left_adjustment_value_col, 0, note_num)
+            worksheet.merge_range(
+                total_monthly_row + 6,
+                left_adjustment_label_start_col,
+                total_monthly_row + 6,
+                left_adjustment_label_end_col,
+                'Total',
+                note_label_bold,
+            )
+            _write_account_placeholders(total_monthly_row + 6, note_label_bold, note_num_bold)
+            worksheet.write_blank(total_monthly_row + 6, left_adjustment_blank_col, None, note_label_bold)
+            worksheet.write_number(total_monthly_row + 6, left_adjustment_value_col, grand_ppn, note_num_bold)
             worksheet.merge_range(total_monthly_row + 8, 1, total_monthly_row + 8, 2, 'Selisih Kotor Ekualisasi Peredaran Usaha', section_format)
             worksheet.write_number(total_monthly_row + 8, 4, grand_selisih, total_line_num)
+
+            adjustment_label_start_col = max(ppn_label_col, total_gl_col)
+            adjustment_label_end_col = max(adjustment_label_start_col, selisih_col - 1)
+            adjustment_value_col = selisih_col
 
             adjustment_labels = [
                 'Penyerahan terutang PPN Selain Pendapatan',
@@ -506,20 +561,40 @@ def process_recap_2_files(source_path, ppn_path, output_dir, progress_callback=N
             ]
             adj_row_start = total_monthly_row + 11
             for idx, label in enumerate(adjustment_labels):
-                worksheet.write(adj_row_start + idx, 31, label, note_label)
-                worksheet.write_blank(adj_row_start + idx, 32, None, note_label)
-                worksheet.write_number(adj_row_start + idx, 33, 0, note_num)
+                worksheet.merge_range(
+                    adj_row_start + idx,
+                    adjustment_label_start_col,
+                    adj_row_start + idx,
+                    adjustment_label_end_col,
+                    label,
+                    note_label,
+                )
+                worksheet.write_number(adj_row_start + idx, adjustment_value_col, 0, note_num)
 
             total_other_income_row = adj_row_start + len(adjustment_labels)
-            worksheet.merge_range(total_other_income_row, 31, total_other_income_row, 32, 'Total Pendapatan Lainnya', section_format)
-            worksheet.write_number(total_other_income_row, 33, 0, note_num_bold)
+            worksheet.merge_range(
+                total_other_income_row,
+                adjustment_label_start_col,
+                total_other_income_row,
+                adjustment_label_end_col,
+                'Total Pendapatan Lainnya',
+                section_format,
+            )
+            worksheet.write_number(total_other_income_row, adjustment_value_col, 0, note_num_bold)
 
             final_row = total_other_income_row + 2
-            worksheet.merge_range(final_row, 1, final_row + 2, 32, 'Selisih Bersih Ekualisasi Peredaran Usaha PT. WIT tahun 2021', section_format)
-            worksheet.write_number(final_row, 33, grand_selisih, total_line_num)
+            worksheet.merge_range(
+                final_row,
+                ppn_label_col,
+                final_row + 2,
+                adjustment_label_end_col,
+                'Selisih Bersih Ekualisasi Peredaran Usaha PT. WIT tahun 2021',
+                section_format,
+            )
+            worksheet.write_number(final_row, adjustment_value_col, grand_selisih, total_line_num)
 
             worksheet.merge_range(
-                final_row + 3, 1, final_row + 3, 33,
+                final_row + 3, ppn_label_col, final_row + 3, adjustment_value_col,
                 'Menurut hemat kami, Selisih Bersih Ekualisasi senilai Rp. ..........',
                 bold_text
             )

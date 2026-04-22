@@ -30,7 +30,10 @@ def extract_no_faktur_from_description(desc: str, voucher_cat: str) -> str | Non
     voucher_part = None
     for p in parts:
         # (?i) = Kebal terhadap huruf besar/kecil
-        if re.search(r'(?i)(?:[A-Z]{2,5}-\d+[A-Z0-9_-]*|[A-Z]{2,5}\d+-[A-Z0-9_-]+|[A-Z]{2,5}\d{5,})', p):
+        if re.search(
+            r"(?i)(?:[A-Z]{2,5}-\d+[A-Z0-9_-]*|[A-Z]{2,5}\d+-[A-Z0-9_-]+|[A-Z]{2,5}\d{5,})",
+            p,
+        ):
             voucher_part = p
             break
 
@@ -40,20 +43,22 @@ def extract_no_faktur_from_description(desc: str, voucher_cat: str) -> str | Non
             voucher_part = parts if len(parts) >= 1 else None
         else:
             voucher_part = parts if len(parts) >= 2 else (parts if parts else None)
-            
+
     # 3. KEMBALIKAN JIKA KATEGORI GL-JV
     if str(voucher_cat).strip() == "GL-JV":
         return voucher_part
 
-# --- 4. LOGIKA KHUSUS DIGUNGGUNG: Deteksi Nominal di K3 ---
+    # --- 4. LOGIKA KHUSUS DIGUNGGUNG: Deteksi Nominal di K3 ---
     if len(parts) >= 3 and voucher_part:
         # HARUS pakai parts karena kita mau membersihkan nominal uangnya, BUKAN vouchernya
         clean_num = parts[2].replace(" ", "").replace(",", "").replace(".", "")
 
-        # PERBAIKAN PAMUNGKAS: 
+        # PERBAIKAN PAMUNGKAS:
         # 1. Tidak boleh diawali nol (Mencegah Nomor HP)
         # 2. Panjang angka minimal 4 digit (Mencegah ID Toko/Area seperti "318" ikut tergabung)
-        if clean_num.isdigit() and not clean_num.startswith("0") and len(clean_num) > 4:  # <--- UBAH JADI > 4
+        if (
+            clean_num.isdigit() and not clean_num.startswith("0") and len(clean_num) > 4
+        ):  # <--- UBAH JADI > 4
             try:
                 v = float(clean_num)
                 formatted_num = f"{int(v)}" if v.is_integer() else f"{v}"
@@ -68,6 +73,7 @@ def extract_no_faktur_from_description(desc: str, voucher_cat: str) -> str | Non
                     pass
 
     return voucher_part
+
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -206,21 +212,15 @@ def compare_files(
     k3 = _ensure_column_from_aliases(
         k3, "VOUCHER_CATEGORY", ["VOUCHER_CATEGORY"], required=True
     )
-    k3 = _ensure_column_from_aliases(
-        k3, "VOUCHER_NO", ["VOUCHER_NO"], required=True
-    )
-    k3 = _ensure_column_from_aliases(
-        k3, "DESCRIPTION", ["DESCRIPTION"], required=True
-    )
+    k3 = _ensure_column_from_aliases(k3, "VOUCHER_NO", ["VOUCHER_NO"], required=True)
+    k3 = _ensure_column_from_aliases(k3, "DESCRIPTION", ["DESCRIPTION"], required=True)
     k3 = _ensure_column_from_aliases(
         k3, "DEBIT_AMOUNT", ["DEBIT_AMOUNT"], required=True
     )
     k3 = _ensure_column_from_aliases(
         k3, "CREDIT_AMOUNT", ["CREDIT_AMOUNT"], required=True
     )
-    k3 = _ensure_column_from_aliases(
-        k3, "DIRECTION", ["DIRECTION"], required=False
-    )
+    k3 = _ensure_column_from_aliases(k3, "DIRECTION", ["DIRECTION"], required=False)
     k3 = _ensure_column_from_aliases(k3, "BALANCE", ["BALANCE"], required=False)
     print(f"K3 combined shape: {k3.shape}, columns: {list(k3.columns)}")
     _emit_progress(8, "Normalizing GL source data...")
@@ -452,9 +452,7 @@ def compare_files(
             how="left",
             suffixes=("", "_from_coretax2"),
         )
-        merged = merged.rename(
-            columns={nomor_faktur_pajak_col: "NOMOR_FAKTUR_PAJAK"}
-        )
+        merged = merged.rename(columns={nomor_faktur_pajak_col: "NOMOR_FAKTUR_PAJAK"})
         print("Setelah merge NOMOR_FAKTUR_PAJAK, kolom di merged:", merged.columns)
     else:
         merged["NOMOR_FAKTUR_PAJAK"] = None  # Atur sebagai None jika kolom tidak ada
@@ -505,8 +503,8 @@ def compare_files(
 
     def _sanitize_sheet_name(name: str) -> str:
         """Bersihkan nama sheet Excel (max 31 karakter, tanpa karakter terlarang)."""
-        for ch in ['[', ']', ':', '*', '?', '/', '\\']:
-            name = name.replace(ch, '_')
+        for ch in ["[", "]", ":", "*", "?", "/", "\\"]:
+            name = name.replace(ch, "_")
         return name.strip()[:31]
 
     def _ensure_table_headers_are_strings(
@@ -554,7 +552,9 @@ def compare_files(
     # -------------------------------------------------------------------
 
     # --- 15) TULIS DATA PER AKUN (PISAH SHEET, SPLIT >500K BARIS) ---
-    processed_coretax = set()  # Untuk melacak voucher mana yang sudah muncul data Coretax-nya
+    processed_coretax = (
+        set()
+    )  # Untuk melacak voucher mana yang sudah muncul data Coretax-nya
     sheet_row_counts = {}
     first_sheet = True
 
@@ -622,7 +622,7 @@ def compare_files(
                 )
 
                 # --- LOGIKA PENENTUAN STATUS & DIFFERENCE ---
-                row_diff_formula = "" # Variabel untuk menampung rumus Excel dinamis
+                row_diff_formula = ""  # Variabel untuk menampung rumus Excel dinamis
 
                 if voucher_no == "-":
                     # KONDISI 1: DATA KOSONG
@@ -632,11 +632,11 @@ def compare_files(
                     if row["ACCOUNT_NAME"] == "Sales Return":
                         row_diff = -(float(row_debit) + row_dpp)
                         # Rumus Excel: -(Debit + DPP)
-                        row_diff_formula = f"=-(G{r} + O{r})" 
+                        row_diff_formula = f"=-(G{r} + O{r})"
                     else:
                         row_diff = float(row_net)
                         # Rumus Excel: Net
-                        row_diff_formula = f"=I{r}" 
+                        row_diff_formula = f"=I{r}"
 
                     status = "Tidak ada di Coretax"
                     difference_total += row_diff
@@ -655,7 +655,11 @@ def compare_files(
                             row_diff = -(float(total_gl_debit) + row_dpp)
                             # Karena total_gl_debit adalah gabungan banyak baris, angkanya kita print mati, tapi DPP tetap referensi sel O
                             row_diff_formula = f"=-({total_gl_debit} + O{r})"
-                        elif row["ACCOUNT_NAME"] in ["Repair Service Income", "Sales Price Protection", "Sales"]:
+                        elif row["ACCOUNT_NAME"] in [
+                            "Repair Service Income",
+                            "Sales Price Protection",
+                            "Sales",
+                        ]:
                             row_diff = float(total_gl_net) - row_dpp
                             row_diff_formula = f"={total_gl_net} - O{r}"
                         else:
@@ -672,7 +676,11 @@ def compare_files(
                         if row["ACCOUNT_NAME"] == "Sales Return":
                             row_diff = -(float(row_debit) + row_dpp)
                             row_diff_formula = f"=-(G{r} + O{r})"
-                        elif row["ACCOUNT_NAME"] in ["Repair Service Income", "Sales Price Protection", "Sales"]:
+                        elif row["ACCOUNT_NAME"] in [
+                            "Repair Service Income",
+                            "Sales Price Protection",
+                            "Sales",
+                        ]:
                             row_diff = float(row_net) - row_dpp
                             row_diff_formula = f"=I{r} - O{r}"
                         else:
@@ -718,7 +726,7 @@ def compare_files(
                 )
                 current_ws.cell(r, 15).value = row_dpp
                 current_ws.cell(r, 16).value = row_ppn
-                
+
                 # Cetak formula yang sudah dipilih secara cerdas oleh Python
                 current_ws.cell(r, 17).value = row_diff_formula
                 current_ws.cell(r, 18).value = (
@@ -737,7 +745,9 @@ def compare_files(
                 if total_rows_to_write > 0 and (
                     rows_written == total_rows_to_write or rows_written % 2000 == 0
                 ):
-                    dynamic_progress = 52 + int((rows_written / total_rows_to_write) * 36)
+                    dynamic_progress = 52 + int(
+                        (rows_written / total_rows_to_write) * 36
+                    )
                     dynamic_progress = min(88, dynamic_progress)
                     if dynamic_progress > last_emitted_progress:
                         last_emitted_progress = dynamic_progress
@@ -804,7 +814,9 @@ def compare_files(
         tab.tableStyleInfo = table_style
         target_ws.add_table(tab)
 
-    print(f"Selesai! Data ditulis ke {len(sheet_row_counts)} sheet. Total baris: {len(merged)}")
+    print(
+        f"Selesai! Data ditulis ke {len(sheet_row_counts)} sheet. Total baris: {len(merged)}"
+    )
 
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
