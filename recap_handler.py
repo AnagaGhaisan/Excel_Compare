@@ -346,6 +346,12 @@ def process_recap_2_files(source_path, ppn_path, output_dir, progress_callback=N
             writer.sheets['Summary Ekualisasi'] = worksheet
             worksheet.hide_gridlines(2)
 
+            def merge_or_write(row, first_col, last_col, value, cell_format):
+                if last_col <= first_col:
+                    worksheet.write(row, first_col, value, cell_format)
+                else:
+                    worksheet.merge_range(row, first_col, row, last_col, value, cell_format)
+
             title_format = workbook.add_format({
                 'bold': True, 'font_size': 14, 'align': 'center', 'valign': 'vcenter'
             })
@@ -381,28 +387,52 @@ def process_recap_2_files(source_path, ppn_path, output_dir, progress_callback=N
             note_label_bold = workbook.add_format({'bold': True, 'valign': 'vcenter', 'border': 1})
             note_num_bold = workbook.add_format({'bold': True, 'num_format': '#,##0', 'valign': 'vcenter', 'border': 1})
 
-            width_map = {
-                0: 13, 1: 31, 2: 26, 3: 4.8, 4: 21, 5: 14.6, 6: 4.3, 7: 21, 8: 14.6, 9: 4.3,
-                10: 21, 11: 14.6, 12: 4.3, 13: 21, 14: 14.6, 15: 4.3, 16: 21, 17: 14.6, 18: 4.3,
-                19: 21, 20: 14.6, 21: 4.3, 22: 21, 23: 14.6, 24: 4.3, 25: 21, 26: 14.6, 27: 4.3,
-                28: 21, 29: 14.6, 30: 4.3, 31: 23.5, 32: 17.6, 33: 3.5
-            }
-            for col_idx, width in width_map.items():
-                worksheet.set_column(col_idx, col_idx, width)
-
-            worksheet.merge_range(0, 0, 0, 33, 'Ekualisasi Peredaran Usaha dengan DPP Penyerahan PPN', title_format)
-            worksheet.merge_range(1, 0, 1, 33, 'PT. WORLD INNOVATIVE TELECOMMUNICATION', title_format)
-            worksheet.merge_range(6, 1, 6, 2, 'Peredaran Usaha cfm. SPT Tahunan PPh Badan', section_format)
-            worksheet.write(7, 1, 'terdiri dari:', bold_text)
-
             # Header grid bulanan.
             ppn_label_col = 1
             ppn_amount_col = 2
             block_starts = [4 + 3 * idx for idx in range(len(unique_accounts))]
             total_gl_col = block_starts[-1] + 3 if block_starts else 4
             selisih_col = total_gl_col + 2
+            report_last_col = selisih_col
             total_summary_label_start = max(ppn_label_col, total_gl_col)
             total_summary_label_end = max(total_summary_label_start, selisih_col - 1)
+
+            fixed_width_map = {
+                0: 13,
+                1: 31,
+                2: 26,
+                3: 4.8,
+            }
+            for col_idx, width in fixed_width_map.items():
+                worksheet.set_column(col_idx, col_idx, width)
+
+            for start_col in block_starts:
+                worksheet.set_column(start_col, start_col, 21)
+                worksheet.set_column(start_col + 1, start_col + 1, 14.6)
+                worksheet.set_column(start_col + 2, start_col + 2, 4.3)
+
+            merge_or_write(
+                0,
+                0,
+                report_last_col,
+                'Ekualisasi Peredaran Usaha dengan DPP Penyerahan PPN',
+                title_format,
+            )
+            merge_or_write(
+                1,
+                0,
+                report_last_col,
+                'PT. WORLD INNOVATIVE TELECOMMUNICATION',
+                title_format,
+            )
+            merge_or_write(
+                6,
+                1,
+                min(2, report_last_col),
+                'Peredaran Usaha cfm. SPT Tahunan PPh Badan',
+                section_format,
+            )
+            worksheet.write(7, 1, 'terdiri dari:', bold_text)
 
             # Pastikan kolom TOTAL dan Selisih cukup lebar walaupun posisinya dinamis.
             worksheet.set_column(total_gl_col, total_gl_col, 18)
