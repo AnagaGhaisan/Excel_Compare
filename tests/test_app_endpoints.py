@@ -131,15 +131,13 @@ class FlaskEndpointTests(unittest.TestCase):
         self.assertIn("mode=compare", response.location)
         self.assertIn("sheets=Sheet1,Sheet2", response.location)
 
-    @patch("app.threading.Thread")
+    @patch("app.COMPARE_EXECUTOR.submit")
     @patch("app.uuid.uuid4")
-    def test_upload_start_returns_job_id_and_accepted(self, mock_uuid, mock_thread):
+    def test_upload_start_returns_job_id_and_accepted(self, mock_uuid, mock_submit):
         mock_uuid.side_effect = [
             "11223344-aaaa-bbbb-cccc-ddddeeeeffff",
             "99887766-aaaa-bbbb-cccc-ddddeeeeffff",
         ]
-        mock_worker = MagicMock()
-        mock_thread.return_value = mock_worker
 
         data = {
             "k3_file": (io.BytesIO(b"dummy"), "k3.xlsx"),
@@ -154,8 +152,7 @@ class FlaskEndpointTests(unittest.TestCase):
         payload = response.get_json()
         self.assertIn("job_id", payload)
         self.assertEqual(payload["job_id"], "99887766-aaaa-bbbb-cccc-ddddeeeeffff")
-        mock_thread.assert_called_once()
-        mock_worker.start.assert_called_once()
+        mock_submit.assert_called_once()
 
     def test_upload_progress_missing_job_returns_error_event(self):
         response = self.client.get("/upload/progress/non-existent-job")

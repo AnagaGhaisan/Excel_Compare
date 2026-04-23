@@ -13,6 +13,7 @@ from flask import (
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from helpers import compare_files, allowed_file, get_gl_account_options
 from recap_handler import recap_bp
@@ -60,6 +61,12 @@ UPLOAD_FILE_TTL_SECONDS = 7200
 OUTPUT_FILE_TTL_SECONDS = 365 * 24 * 60 * 60
 COMPARE_PREPARATION_PROGRESS_MAX = 20
 COMPARE_PROCESS_PROGRESS_MAX = 99
+COMPARE_MAX_WORKERS = int(os.environ.get("COMPARE_MAX_WORKERS", "2"))
+WAITRESS_THREADS = int(os.environ.get("WAITRESS_THREADS", "16"))
+COMPARE_EXECUTOR = ThreadPoolExecutor(
+    max_workers=COMPARE_MAX_WORKERS,
+    thread_name_prefix="compare-worker",
+)
 
 
 def _delete_uploaded_files(file_paths):
@@ -450,22 +457,18 @@ def start_upload_file():
     _update_compare_job(
         job_id,
         progress=3,
-        status="processing",
-        message="Files uploaded. Starting comparison...",
+        status="queued",
+        message="Files uploaded. Waiting for an available compare slot...",
     )
 
-    worker = threading.Thread(
-        target=_process_comparison_job,
-        args=(
-            job_id,
-            k3_file_path,
-            coretax_file_path_1,
-            coretax_file_path_2,
-            account_formula_map,
-        ),
-        daemon=True,
+    COMPARE_EXECUTOR.submit(
+        _process_comparison_job,
+        job_id,
+        k3_file_path,
+        coretax_file_path_1,
+        coretax_file_path_2,
+        account_formula_map,
     )
-    worker.start()
 
     return jsonify({"job_id": job_id}), 202
 
@@ -863,4 +866,4 @@ if __name__ == "__main__":
         app.run(host="0.0.0.0", port=8000, debug=True)
     else:
         print("Running in PRODUCTION mode (Waitress)...")
-        serve(app, host="0.0.0.0", port=8000, threads=6)
+        serve(app, host="0.0.0.0", port=8000, threads=WAITRESS_THREADS)
