@@ -626,6 +626,16 @@ def compare_files(
 
     # 1. Jadikan Set agar pencarian 'in' berjalan sekejap mata
     coretax_voucher_set = set(coretax_agg["NO_VOUCHER"].dropna().astype(str))
+    duplicate_voucher_set = set(
+        merged["NO_VOUCHER"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .loc[lambda series: ~series.isin(["", "-", "nan", "None", "none"])]
+        .value_counts()
+        .loc[lambda counts: counts > 1]
+        .index
+    )
 
     # 2. Hitung total Net dan Debit dari awal, jangan hitung di dalam loop
     merged["Net_Numeric"] = pd.to_numeric(merged["Net"], errors="coerce").fillna(0)
@@ -646,6 +656,10 @@ def compare_files(
     processed_coretax = (
         set()
     )  # Untuk melacak voucher mana yang sudah muncul data Coretax-nya
+    duplicate_group_map = {
+        voucher: f"Duplicate {idx}"
+        for idx, voucher in enumerate(sorted(duplicate_voucher_set), start=1)
+    }
     sheet_row_counts = {}
     first_sheet = True
 
@@ -700,6 +714,7 @@ def compare_files(
                 row_debit = float(row.get("Debit Amount", 0))
                 row_credit = float(row.get("Credit Amount", 0))
                 row_net = float(row.get("Net", 0))
+                display_row_net = row_net
 
                 # Selalu tambahkan data GL ke subtotal
                 debit_total += row_debit
@@ -711,6 +726,13 @@ def compare_files(
                 voucher_no_in_coretax = (voucher_no != "-") and (
                     voucher_no in coretax_voucher_set
                 )
+                voucher_no_is_duplicate = voucher_no in duplicate_voucher_set
+
+                def build_match_status():
+                    if not voucher_no_is_duplicate:
+                        return "Unique"
+
+                    return duplicate_group_map.get(voucher_no, "Duplicate")
 
                 # --- LOGIKA PENENTUAN STATUS & DIFFERENCE ---
                 row_diff_formula = ""  # Variabel untuk menampung rumus Excel dinamis
@@ -735,6 +757,8 @@ def compare_files(
                     if voucher_no_in_coretax:
                         totals = grouped_totals.get(voucher_no, {})
                         total_gl_net = float(totals.get("total_gl_net", 0))
+                        if voucher_no_is_duplicate:
+                            display_row_net = total_gl_net if total_gl_net != 0 else row_net
                         if total_gl_net == 0:
                             row_diff = _calculate_difference_from_net(row_net, row_dpp)
                             row_diff_formula = f"=I{r} - O{r}"
@@ -744,7 +768,7 @@ def compare_files(
                             )
                             row_diff_formula = f"={total_gl_net} - O{r}"
 
-                        status = "Unique"
+                        status = build_match_status()
                     else:
                         row_diff = float(row_net)
                         row_diff_formula = f"=I{r}"
@@ -761,9 +785,11 @@ def compare_files(
                     row_ppn = 0.0
                     row_diff = 0
                     row_diff_formula = "=0"
+                    if voucher_no_is_duplicate:
+                        display_row_net = 0
 
                     if voucher_no_in_coretax:
-                        status = "Unique"
+                        status = build_match_status()
                     else:
                         status = "Tidak ada di Coretax"
 
@@ -776,7 +802,7 @@ def compare_files(
                 current_ws.cell(r, 6).value = row.get("DESCRIPTION")
                 current_ws.cell(r, 7).value = row_debit
                 current_ws.cell(r, 8).value = row_credit
-                current_ws.cell(r, 9).value = row_net
+                current_ws.cell(r, 9).value = display_row_net
                 current_ws.cell(r, 10).value = row.get("DIRECTION")
                 current_ws.cell(r, 11).value = v_bal
 

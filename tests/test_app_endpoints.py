@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 
 from app import app
-from app import COMPARE_JOBS, COMPARE_JOBS_LOCK
+from app import COMPARE_JOBS, COMPARE_JOBS_LOCK, _map_compare_stage_progress
 from recap_handler import RECAP_JOBS, RECAP_JOBS_LOCK
 
 
@@ -68,6 +68,11 @@ class FlaskEndpointTests(unittest.TestCase):
         response = self.client.get("/download-template/gl")
         self.assertEqual(response.status_code, 404)
         self.assertIn(b"tidak ditemukan", response.data)
+
+    def test_compare_progress_mapping_matches_overall_loading_range(self):
+        self.assertEqual(_map_compare_stage_progress(0), 20)
+        self.assertEqual(_map_compare_stage_progress(50), 59)
+        self.assertEqual(_map_compare_stage_progress(100), 99)
 
     def test_upload_missing_file_part(self):
         response = self.client.post("/upload", data={}, content_type="multipart/form-data")

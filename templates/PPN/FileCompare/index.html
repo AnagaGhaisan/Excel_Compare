@@ -301,6 +301,8 @@
         throw new Error('GL file wajib dipilih.');
       }
 
+      showLoading('Membaca akun dari file GL...');
+      setLoadingProgress(15);
       accountFormData.append('k3_file', glFile);
 
       const response = await fetch('/upload/accounts', {
@@ -308,11 +310,15 @@
         body: accountFormData
       });
 
+      setLoadingProgress(70);
+
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload.error || 'Gagal membaca akun dari file GL.');
       }
 
+      loadingStatusText.textContent = 'Akun berhasil dibaca. Menyiapkan pilihan rumus...';
+      setLoadingProgress(100);
       return Array.isArray(payload.accounts) ? payload.accounts : [];
     }
 
@@ -407,7 +413,6 @@
       }
 
       setSubmittingState(true);
-      showLoading('Membaca akun dari file GL...');
 
       try {
         pendingUploadFormData = new FormData(uploadForm);

@@ -58,6 +58,8 @@ COMPARE_JOBS_LOCK = threading.Lock()
 COMPARE_JOB_TTL_SECONDS = 1800
 UPLOAD_FILE_TTL_SECONDS = 7200
 OUTPUT_FILE_TTL_SECONDS = 365 * 24 * 60 * 60
+COMPARE_PREPARATION_PROGRESS_MAX = 20
+COMPARE_PROCESS_PROGRESS_MAX = 99
 
 
 def _delete_uploaded_files(file_paths):
@@ -184,6 +186,14 @@ def _build_comparison_redirect_url(file_name, sheet_list):
     return f"/comparison?{query}"
 
 
+def _map_compare_stage_progress(compare_progress):
+    bounded_progress = max(0, min(100, int(compare_progress)))
+    progress_span = COMPARE_PROCESS_PROGRESS_MAX - COMPARE_PREPARATION_PROGRESS_MAX
+    return COMPARE_PREPARATION_PROGRESS_MAX + int(
+        (bounded_progress / 100) * progress_span
+    )
+
+
 def _parse_account_formula_map(raw_value):
     if not raw_value:
         return {}
@@ -204,7 +214,7 @@ def _process_comparison_job(
 ):
     _update_compare_job(
         job_id,
-        progress=10,
+        progress=5,
         status="processing",
         message="Reading GL file...",
     )
@@ -213,7 +223,7 @@ def _process_comparison_job(
         k3_sheets = pd.read_excel(k3_file_path, sheet_name=None, header=1)
         _update_compare_job(
             job_id,
-            progress=25,
+            progress=10,
             status="processing",
             message="Reading Coretax Digunggung file...",
         )
@@ -221,7 +231,7 @@ def _process_comparison_job(
         coretax_sheets_1 = pd.read_excel(coretax_file_path_1, sheet_name=None, header=1)
         _update_compare_job(
             job_id,
-            progress=40,
+            progress=15,
             status="processing",
             message="Reading Coretax Tidak Digunggung file...",
         )
@@ -229,17 +239,15 @@ def _process_comparison_job(
         coretax_sheets_2 = pd.read_excel(coretax_file_path_2, sheet_name=None, header=1)
         _update_compare_job(
             job_id,
-            progress=50,
+            progress=COMPARE_PREPARATION_PROGRESS_MAX,
             status="processing",
             message="Comparing and matching data...",
         )
 
         def _on_compare_progress(compare_progress, compare_message):
-            bounded_progress = max(0, min(100, int(compare_progress)))
-            mapped_progress = 50 + int((bounded_progress / 100) * 45)
             _update_compare_job(
                 job_id,
-                progress=mapped_progress,
+                progress=_map_compare_stage_progress(compare_progress),
                 status="processing",
                 message=compare_message,
             )
@@ -289,6 +297,24 @@ def _get_file_modified_time(file_path):
         return os.path.getmtime(file_path)
     except OSError:
         return 0.0
+
+
+@lru_cache(maxsize=256)
+def _static_asset_version(relative_path):
+    file_path = os.path.join(app.static_folder, relative_path)
+    return str(int(os.path.getmtime(file_path)))
+
+
+@app.context_processor
+def inject_asset_helpers():
+    def asset_url(filename):
+        try:
+            version = _static_asset_version(filename)
+        except OSError:
+            version = None
+        return url_for("static", filename=filename, v=version)
+
+    return {"asset_url": asset_url}
 
 
 app.config["UPLOAD_FILE_TTL_SECONDS"] = UPLOAD_FILE_TTL_SECONDS
@@ -423,7 +449,7 @@ def start_upload_file():
     _create_compare_job(job_id)
     _update_compare_job(
         job_id,
-        progress=5,
+        progress=3,
         status="processing",
         message="Files uploaded. Starting comparison...",
     )
@@ -830,7 +856,7 @@ def ekualisasi_pph23_route():
 
 if __name__ == "__main__":
     # Ubah 'True' menjadi 'False' jika ingin pindah ke mode production
-    DEBUG_MODE = False
+    DEBUG_MODE = True
 
     if DEBUG_MODE:
         print("Running in DEBUG mode...")
