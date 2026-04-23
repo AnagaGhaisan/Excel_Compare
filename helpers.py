@@ -13,6 +13,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 # File paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DRAFT_TEMPLATE_PATH = os.path.join(BASE_DIR, "static/template/Draft Output.xlsx")
+COMMA_NUMBER_FORMAT = "#,##0"
 
 FORMULA_CREDIT_MINUS_DEBIT = "credit_minus_debit"
 FORMULA_DEBIT_MINUS_CREDIT = "debit_minus_credit"
@@ -205,33 +206,83 @@ def normalize_account_formula_map(account_formula_map: dict | None) -> dict[str,
     return normalized_map
 
 
-def get_gl_account_options(k3_sheets: dict) -> list[dict[str, str]]:
-    k3 = _prepare_k3_dataframe(k3_sheets)
-    options = []
+def _to_clean_string_series(series: pd.Series) -> pd.Series:
+    return series.fillna("").astype(str).str.strip()
 
-    for account_name in k3["ACCOUNT_NAME"].dropna().astype(str).str.strip().unique():
-        if not account_name or account_name.lower() in {"nan", "none"}:
-            continue
 
-        account_rows = k3[k3["ACCOUNT_NAME"].astype(str).str.strip() == account_name]
-        direction = ""
-        if "DIRECTION" in account_rows.columns:
-            direction_candidates = (
-                account_rows["DIRECTION"].dropna().astype(str).str.strip().tolist()
-            )
-            direction = next((value for value in direction_candidates if value), "")
+def _calculate_nett_series(
+    debit_series: pd.Series,
+    credit_series: pd.Series,
+    account_name_series: pd.Series,
+    direction_series: pd.Series,
+    account_formula_map: dict | None = None,
+) -> pd.Series:
+    debit_numeric = pd.to_numeric(debit_series, errors="coerce").fillna(0.0)
+    credit_numeric = pd.to_numeric(credit_series, errors="coerce").fillna(0.0)
+    account_names = _to_clean_string_series(account_name_series)
+    directions = _to_clean_string_series(direction_series)
 
-        options.append(
-            {
-                "account_name": account_name,
-                "direction": direction,
-                "default_formula": _get_default_formula_for_account(
-                    account_name, direction
-                ),
-            }
+    normalized_formula_map = account_formula_map or {}
+    formula_series = account_names.map(normalized_formula_map)
+
+    missing_formula_mask = formula_series.isna() | (formula_series == "")
+    if missing_formula_mask.any():
+        default_formula_series = account_names.map(ACCOUNT_FORMULA_DEFAULTS)
+        direction_lower = directions.str.lower()
+        direction_formula_series = np.where(
+            direction_lower.isin(["credit", "kredit", "cr"]),
+            FORMULA_CREDIT_MINUS_DEBIT,
+            FORMULA_DEBIT_MINUS_CREDIT,
         )
 
-    return options
+        fallback_formula_series = default_formula_series.fillna(
+            pd.Series(direction_formula_series, index=account_names.index)
+        )
+        formula_series = formula_series.where(~missing_formula_mask, fallback_formula_series)
+
+    return pd.Series(
+        np.select(
+            [
+                formula_series == FORMULA_CREDIT_MINUS_DEBIT,
+                formula_series == FORMULA_NEGATIVE_DEBIT_MINUS_CREDIT,
+            ],
+            [
+                -debit_numeric + credit_numeric,
+                -(debit_numeric - credit_numeric),
+            ],
+            default=debit_numeric - credit_numeric,
+        ),
+        index=debit_numeric.index,
+    )
+
+
+def get_gl_account_options(k3_sheets: dict) -> list[dict[str, str]]:
+    k3 = _prepare_k3_dataframe(k3_sheets)
+    account_names = _to_clean_string_series(k3["ACCOUNT_NAME"])
+    valid_mask = ~account_names.str.lower().isin({"", "nan", "none"})
+    if not valid_mask.any():
+        return []
+
+    working_df = pd.DataFrame({"ACCOUNT_NAME": account_names[valid_mask]})
+    if "DIRECTION" in k3.columns:
+        working_df["DIRECTION"] = _to_clean_string_series(k3.loc[valid_mask, "DIRECTION"])
+    else:
+        working_df["DIRECTION"] = ""
+
+    grouped = (
+        working_df.groupby("ACCOUNT_NAME", sort=False)["DIRECTION"]
+        .agg(lambda values: next((value for value in values if value), ""))
+        .reset_index()
+    )
+
+    return [
+        {
+            "account_name": account_name,
+            "direction": direction,
+            "default_formula": _get_default_formula_for_account(account_name, direction),
+        }
+        for account_name, direction in grouped.itertuples(index=False, name=None)
+    ]
 
 
 def _calculate_net_by_formula(debit: float, credit: float, formula_key: str) -> float:
@@ -244,6 +295,21 @@ def _calculate_net_by_formula(debit: float, credit: float, formula_key: str) -> 
 
 def _calculate_difference_from_net(net_value: float, dpp_value: float) -> float:
     return float(net_value) - float(dpp_value)
+
+
+def _apply_number_format_to_columns(
+    worksheet,
+    column_indexes: list[int],
+    start_row: int,
+    end_row: int,
+    number_format: str = COMMA_NUMBER_FORMAT,
+):
+    if end_row < start_row:
+        return
+
+    for row_idx in range(start_row, end_row + 1):
+        for col_idx in column_indexes:
+            worksheet.cell(row_idx, col_idx).number_format = number_format
 
 
 def _parse_id_number(x):
@@ -318,16 +384,18 @@ def compare_files(
     _emit_progress(8, "Normalizing GL source data...")
 
     # 2) BARU terapkan ekstraksi No. Faktur & Nett pada variabel 'k3'
-    k3["No Faktur (key)"] = k3.apply(
-        lambda row: extract_no_faktur_from_description(
-            row.get("DESCRIPTION", ""), row.get("VOUCHER_CATEGORY", "")
-        ),
-        axis=1,
-    )
+    k3["No Faktur (key)"] = [
+        extract_no_faktur_from_description(desc, voucher_cat)
+        for desc, voucher_cat in zip(k3["DESCRIPTION"], k3["VOUCHER_CATEGORY"])
+    ]
     # Bersihkan spasi agar tidak meleset saat merge
     k3["No Faktur (key)"] = k3["No Faktur (key)"].astype(str).str.strip()
-    k3["Nett"] = k3.apply(
-        lambda row: calculate_net(row, normalized_formula_map), axis=1
+    k3["Nett"] = _calculate_nett_series(
+        k3["DEBIT_AMOUNT"],
+        k3["CREDIT_AMOUNT"],
+        k3["ACCOUNT_NAME"],
+        k3.get("DIRECTION", pd.Series("", index=k3.index)),
+        normalized_formula_map,
     )
 
     # 2) Normalize columns for Coretax (biar NO VOUCHER / DOC_NO kebaca konsisten)
@@ -416,13 +484,8 @@ def compare_files(
     # 3. Modifikasi No Faktur (key) di GL K3 (KIRI) AGAR BISA MATCH!
     is_dup_k3 = k3["No Faktur (key)"].isin(dup_vouchers_c1)
     if is_dup_k3.any():
-
-        def get_gl_amount(row):
-            # Ambil nominal GL sesuai formula akun yang dipilih user
-            return float(row.get("Nett", 0))
-
         # Terapkan format angka yang sama dan gabungkan ke No Faktur GL
-        gl_amounts = k3[is_dup_k3].apply(get_gl_amount, axis=1).apply(format_amount)
+        gl_amounts = k3.loc[is_dup_k3, "Nett"].map(format_amount)
         k3.loc[is_dup_k3, "No Faktur (key)"] = (
             k3.loc[is_dup_k3, "No Faktur (key)"] + "/ " + gl_amounts
         )
@@ -498,19 +561,19 @@ def compare_files(
     ).fillna(0)
 
     # Apply the Net calculation based on the account type
-    merged["Net"] = merged.apply(
-        lambda row: calculate_net(row, normalized_formula_map), axis=1
+    merged["Net"] = _calculate_nett_series(
+        merged["DEBIT_AMOUNT"],
+        merged["CREDIT_AMOUNT"],
+        merged["ACCOUNT_NAME"],
+        merged.get("DIRECTION", pd.Series("", index=merged.index)),
+        normalized_formula_map,
     )
 
     merged["DPP"] = pd.to_numeric(merged["DPP"], errors="coerce").fillna(0)
     merged["PPN"] = pd.to_numeric(merged["PPN"], errors="coerce").fillna(0)
 
     # Difference mengikuti formula Net akun yang dipilih user
-    def calculate_difference(row):
-        return _calculate_difference_from_net(row["Net"], row["DPP"])
-
-    # Terapkan fungsi ke kolom Difference
-    merged["Difference"] = merged.apply(calculate_difference, axis=1)
+    merged["Difference"] = merged["Net"] - merged["DPP"]
 
     # 12) Keterangan + Customer (langsung dari kolom kanonik)
     merged["Keterangan (Digunggung/Tidak Digunngung)"] = merged["FP_STATUS"]
@@ -548,7 +611,7 @@ def compare_files(
     else:
         merged["NOMOR_FAKTUR_PAJAK"] = None  # Atur sebagai None jika kolom tidak ada
 
-    # 13) Before filling NaN, convert categorical columns to string type
+    # 13) Tetap jaga dtype numerik agar penulisan workbook tidak ikut melambat
     for column in merged.columns:
         if (
             merged[column].dtype.name == "category"
@@ -556,8 +619,6 @@ def compare_files(
             merged[column] = merged[column].astype(str)
     # Ensure column headers are strings
     merged.columns = merged.columns.astype(str)
-    # Now, proceed with other operations
-    merged = merged.astype(str).fillna("-")
 
     # Cek jika file Excel ada
     if not os.path.exists(DRAFT_TEMPLATE_PATH):
@@ -591,6 +652,25 @@ def compare_files(
                     dst_cell.fill = src_cell.fill.copy()
                     dst_cell.number_format = src_cell.number_format
                     dst_cell.alignment = src_cell.alignment.copy()
+
+        for col_letter, src_dimension in src_ws.column_dimensions.items():
+            dst_ws.column_dimensions[col_letter].width = src_dimension.width
+            dst_ws.column_dimensions[col_letter].hidden = src_dimension.hidden
+            dst_ws.column_dimensions[col_letter].bestFit = src_dimension.bestFit
+
+        for row_idx, src_dimension in src_ws.row_dimensions.items():
+            dst_ws.row_dimensions[row_idx].height = src_dimension.height
+            dst_ws.row_dimensions[row_idx].hidden = src_dimension.hidden
+
+        for merged_range in src_ws.merged_cells.ranges:
+            if merged_range.max_row <= up_to_row:
+                dst_ws.merge_cells(str(merged_range))
+
+        dst_ws.freeze_panes = src_ws.freeze_panes
+        dst_ws.sheet_view.showGridLines = src_ws.sheet_view.showGridLines
+        dst_ws.sheet_format.defaultColWidth = src_ws.sheet_format.defaultColWidth
+        dst_ws.sheet_format.defaultRowHeight = src_ws.sheet_format.defaultRowHeight
+        dst_ws.auto_filter.ref = src_ws.auto_filter.ref
 
     def _sanitize_sheet_name(name: str) -> str:
         """Bersihkan nama sheet Excel (max 31 karakter, tanpa karakter terlarang)."""
@@ -670,6 +750,21 @@ def compare_files(
     rows_written = 0
     last_emitted_progress = 52
 
+    merged_columns = list(merged.columns)
+    merged_col_idx = {column_name: idx for idx, column_name in enumerate(merged_columns)}
+
+    def _row_value(row_tuple, column_name, default=None):
+        col_idx = merged_col_idx.get(column_name)
+        if col_idx is None:
+            return default
+
+        value = row_tuple[col_idx]
+        if pd.isna(value):
+            return default
+        return value
+
+    compare_numeric_columns = [7, 8, 9, 11, 15, 16, 17]
+
     for account_name, group_df in account_groups:
         group_df = group_df.reset_index(drop=True)
         total_rows = len(group_df)
@@ -699,21 +794,19 @@ def compare_files(
 
             sheet_row_counts[current_ws.title] = 0
 
-            for local_i in range(len(chunk_df)):
+            for local_i, row in enumerate(chunk_df.itertuples(index=False, name=None)):
                 r = start_row + local_i
-                row = chunk_df.iloc[local_i]
-
-                v_bal = _parse_id_number(row.get("BALANCE", 0))
+                v_bal = _parse_id_number(_row_value(row, "BALANCE", 0))
 
                 # --- PERBAIKAN: Bersihkan NaN agar tidak dianggap teks "nan" ---
-                voucher_no = str(row.get("NO_VOUCHER", "-")).strip()
+                voucher_no = str(_row_value(row, "NO_VOUCHER", "-")).strip()
                 if voucher_no.lower() in ["nan", "none", "", "-"]:
                     voucher_no = "-"
 
                 # --- SISI GL (KIRI): TETAP FLOAT (MENYIMPAN KOMA) ---
-                row_debit = float(row.get("Debit Amount", 0))
-                row_credit = float(row.get("Credit Amount", 0))
-                row_net = float(row.get("Net", 0))
+                row_debit = float(_row_value(row, "Debit Amount", 0) or 0)
+                row_credit = float(_row_value(row, "Credit Amount", 0) or 0)
+                row_net = float(_row_value(row, "Net", 0) or 0)
                 display_row_net = row_net
 
                 # Selalu tambahkan data GL ke subtotal
@@ -751,8 +844,8 @@ def compare_files(
 
                 elif voucher_no not in processed_coretax:
                     # KONDISI 2: BARIS PERTAMA YANG MATCH
-                    row_dpp = float(row.get("DPP", 0))
-                    row_ppn = float(row.get("PPN", 0))
+                    row_dpp = float(_row_value(row, "DPP", 0) or 0)
+                    row_ppn = float(_row_value(row, "PPN", 0) or 0)
 
                     if voucher_no_in_coretax:
                         totals = grouped_totals.get(voucher_no, {})
@@ -794,22 +887,22 @@ def compare_files(
                         status = "Tidak ada di Coretax"
 
                 # --- PROSES CETAK KE SHEET ---
-                current_ws.cell(r, 1).value = row.get("ACCOUNT_NO")
-                current_ws.cell(r, 2).value = row.get("ACCOUNT_NAME")
-                current_ws.cell(r, 3).value = row.get("DATE")
-                current_ws.cell(r, 4).value = row.get("VOUCHER_CATEGORY")
-                current_ws.cell(r, 5).value = row.get("VOUCHER_NO")
-                current_ws.cell(r, 6).value = row.get("DESCRIPTION")
+                current_ws.cell(r, 1).value = _row_value(row, "ACCOUNT_NO")
+                current_ws.cell(r, 2).value = _row_value(row, "ACCOUNT_NAME")
+                current_ws.cell(r, 3).value = _row_value(row, "DATE")
+                current_ws.cell(r, 4).value = _row_value(row, "VOUCHER_CATEGORY")
+                current_ws.cell(r, 5).value = _row_value(row, "VOUCHER_NO")
+                current_ws.cell(r, 6).value = _row_value(row, "DESCRIPTION")
                 current_ws.cell(r, 7).value = row_debit
                 current_ws.cell(r, 8).value = row_credit
                 current_ws.cell(r, 9).value = display_row_net
-                current_ws.cell(r, 10).value = row.get("DIRECTION")
+                current_ws.cell(r, 10).value = _row_value(row, "DIRECTION")
                 current_ws.cell(r, 11).value = v_bal
 
                 current_ws.cell(r, 13).value = voucher_no if voucher_no != "-" else None
                 current_ws.cell(r, 14).value = (
-                    row.get("NOMOR_FAKTUR_PAJAK")
-                    if str(row.get("NOMOR_FAKTUR_PAJAK")) not in ["nan", "None"]
+                    _row_value(row, "NOMOR_FAKTUR_PAJAK")
+                    if str(_row_value(row, "NOMOR_FAKTUR_PAJAK")) not in ["nan", "None"]
                     else None
                 )
                 current_ws.cell(r, 15).value = row_dpp
@@ -818,11 +911,12 @@ def compare_files(
                 # Cetak formula yang sudah dipilih secara cerdas oleh Python
                 current_ws.cell(r, 17).value = row_diff_formula
                 current_ws.cell(r, 18).value = (
-                    row.get("Customer")
-                    if str(row.get("Customer")) not in ["nan", "None"]
+                    _row_value(row, "Customer")
+                    if str(_row_value(row, "Customer")) not in ["nan", "None"]
                     else None
                 )
-                current_ws.cell(r, 19).value = row.get(
+                current_ws.cell(r, 19).value = _row_value(
+                    row,
                     "Keterangan (Digunggung/Tidak Digunngung)"
                 )
                 current_ws.cell(r, 20).value = status
@@ -862,6 +956,7 @@ def compare_files(
                 cell = target_ws.cell(3, col_idx)
                 cell.value = 0
                 cell.font = bold_font
+                cell.number_format = COMMA_NUMBER_FORMAT
             continue
 
         last_row = start_row + row_count - 1
@@ -871,6 +966,14 @@ def compare_files(
                 f"=SUBTOTAL(109, {col_letter}{start_row}:{col_letter}{last_row})"
             )
             cell.font = bold_font
+            cell.number_format = COMMA_NUMBER_FORMAT
+
+        _apply_number_format_to_columns(
+            target_ws,
+            compare_numeric_columns,
+            start_row,
+            last_row,
+        )
 
     _emit_progress(90, "Applying sheet table formatting...")
 

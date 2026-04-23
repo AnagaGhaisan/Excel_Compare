@@ -7,6 +7,8 @@ from openpyxl.styles import PatternFill
 # UTIL FUNCTIONS
 # =========================
 
+COMMA_NUMBER_FORMAT = '#,##0'
+
 def ensure_column(df, col):
     if col not in df.columns:
         raise ValueError(f"Kolom '{col}' tidak ditemukan di file")
@@ -40,6 +42,15 @@ def clean_numeric(value):
         return float(str_val)
     except:
         return 0.0
+
+
+def apply_number_format_to_range(worksheet, columns, start_row, end_row, number_format=COMMA_NUMBER_FORMAT):
+    if end_row < start_row:
+        return
+
+    for row_idx in range(start_row, end_row + 1):
+        for col_idx in columns:
+            worksheet.cell(row_idx, col_idx).number_format = number_format
 
 
 # =========================
@@ -168,7 +179,7 @@ def proses_ekualisasi(file_bupot, file_voucher, file_template, file_output):
     ws = wb.active
 
     start_row = 4
-    num_format = '#,##0'
+    num_format = COMMA_NUMBER_FORMAT
     red_fill = PatternFill(start_color="FFC7CE", fill_type="solid")
 
     for i, row in merged.iterrows():
@@ -249,6 +260,8 @@ def proses_ekualisasi(file_bupot, file_voucher, file_template, file_output):
 
     if last_row >= 3:
         ws.auto_filter.ref = f"A3:AE{last_row}"
+
+    apply_number_format_to_range(ws, [11, 14, 25, 26, 30, 31], start_row, last_row)
 
     for col in ws.columns:
         max_length = 0
