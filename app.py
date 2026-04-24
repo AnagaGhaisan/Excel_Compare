@@ -57,7 +57,8 @@ os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 COMPARE_JOBS = {}
 COMPARE_JOBS_LOCK = threading.Lock()
 COMPARE_JOB_TTL_SECONDS = 1800
-UPLOAD_FILE_TTL_SECONDS = 7200
+# Simpan file upload hanya sebentar agar folder uploads cepat dibersihkan.
+UPLOAD_FILE_TTL_SECONDS = 300
 OUTPUT_FILE_TTL_SECONDS = 365 * 24 * 60 * 60
 COMPARE_PREPARATION_PROGRESS_MAX = 20
 COMPARE_PROCESS_PROGRESS_MAX = 99
