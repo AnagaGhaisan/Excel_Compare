@@ -655,13 +655,13 @@ def upload_recap():
         s_path = os.path.join(current_app.config["UPLOAD_FOLDER"], s_name)
         p_path = os.path.join(current_app.config["UPLOAD_FOLDER"], p_name)
 
-        source_file.save(s_path)
-        ppn_file.save(p_path)
-
         output_dir = current_app.config["OUTPUT_RECAP_FOLDER"]
         os.makedirs(output_dir, exist_ok=True)
 
         try:
+            source_file.save(s_path)
+            ppn_file.save(p_path)
+
             out_name, sheets = process_recap_2_files(s_path, p_path, output_dir)
 
             return redirect(
@@ -674,6 +674,8 @@ def upload_recap():
             )
         except Exception as e:
             return f"Terjadi kesalahan saat memproses: {str(e)}", 500
+        finally:
+            _delete_recap_uploaded_files([s_path, p_path])
 
     return "Format file tidak valid", 400
 

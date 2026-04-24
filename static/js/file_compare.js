@@ -9,11 +9,14 @@ const accountFormulaModalElement = document.getElementById("accountFormulaModal"
 const accountFormulaModal = new bootstrap.Modal(accountFormulaModalElement);
 const accountFormulaTableBody = document.getElementById("accountFormulaTableBody");
 const confirmAccountFormulaBtn = document.getElementById("confirmAccountFormulaBtn");
+const accountFormulaDescriptionText = document.getElementById("accountFormulaDescriptionText");
 
 let progressEventSource = null;
 let pendingUploadFormData = null;
 let pendingAccounts = [];
 let pendingGlUploadToken = null;
+let currentDisplayedProgress = 0;
+let compareFlowProgress = 0;
 
 const formulaOptions = [
   { value: "credit_minus_debit", label: "-debit + credit" },
@@ -21,19 +24,33 @@ const formulaOptions = [
   { value: "negative_debit_minus_credit", label: "-(debit - credit)" },
 ];
 
-function setLoadingProgress(value) {
+function setLoadingProgress(value, options = {}) {
+  const { allowDecrease = false } = options;
   const normalizedValue = Math.max(0, Math.min(100, Number(value) || 0));
-  const percentageText = `${normalizedValue}%`;
+  const nextValue = allowDecrease
+    ? normalizedValue
+    : Math.max(currentDisplayedProgress, normalizedValue);
+  currentDisplayedProgress = nextValue;
+  compareFlowProgress = nextValue;
+  const percentageText = `${nextValue}%`;
 
   loadingProgressBar.style.width = percentageText;
-  loadingProgressBar.textContent = percentageText;
+  loadingProgressBar.textContent = "";
   loadingProgressText.textContent = percentageText;
-  loadingProgressContainer.setAttribute("aria-valuenow", normalizedValue);
+  loadingProgressContainer.setAttribute("aria-valuenow", nextValue);
 }
 
-function showLoading(statusMessage) {
+function showLoading(statusMessage, initialProgress = 0) {
   loadingStatusText.textContent = statusMessage;
-  setLoadingProgress(0);
+  currentDisplayedProgress = 0;
+  setLoadingProgress(initialProgress, { allowDecrease: true });
+  loadingScreen.style.display = "flex";
+}
+
+function resumeLoading(statusMessage) {
+  loadingStatusText.textContent = statusMessage;
+  currentDisplayedProgress = compareFlowProgress;
+  setLoadingProgress(compareFlowProgress, { allowDecrease: true });
   loadingScreen.style.display = "flex";
 }
 
@@ -48,10 +65,35 @@ function closeProgressStream() {
   }
 }
 
+function resetCompareProgressState() {
+  closeProgressStream();
+  pendingGlUploadToken = null;
+  compareFlowProgress = 0;
+  currentDisplayedProgress = 0;
+  setLoadingProgress(0, { allowDecrease: true });
+}
+
 function setSubmittingState(isSubmitting) {
   submitButton.disabled = isSubmitting;
   submitButton.textContent = isSubmitting ? "Processing..." : "Upload & Compare";
   confirmAccountFormulaBtn.disabled = isSubmitting;
+}
+
+function updateFormulaModalDescription(accounts) {
+  if (!accountFormulaDescriptionText) {
+    return;
+  }
+
+  if (!accounts.length) {
+    accountFormulaDescriptionText.textContent =
+      "Tidak ada akun unik yang terbaca dari file GL. Silakan cek kembali file yang diunggah.";
+    return;
+  }
+
+  const accountLabel = accounts.length === 1 ? "akun" : "akun";
+  accountFormulaDescriptionText.textContent =
+    `Sistem sudah membaca ${accounts.length} ${accountLabel} unik dari file GL. ` +
+    "Silakan review rumus tiap akun sebelum proses compare dijalankan.";
 }
 
 function escapeHtml(value) {
@@ -112,8 +154,8 @@ async function fetchAccountOptions() {
     throw new Error("GL file wajib dipilih.");
   }
 
-  showLoading("Membaca akun dari file GL...");
-  setLoadingProgress(15);
+  showLoading("Langkah 1 dari 3: membaca akun dari file GL...", 0);
+  setLoadingProgress(4);
   accountFormData.append("k3_file", glFile);
 
   const response = await fetch("/upload/accounts", {
@@ -121,15 +163,15 @@ async function fetchAccountOptions() {
     body: accountFormData,
   });
 
-  setLoadingProgress(70);
+  setLoadingProgress(8);
 
   const payload = await response.json();
   if (!response.ok) {
     throw new Error(payload.error || "Gagal membaca akun dari file GL.");
   }
 
-  loadingStatusText.textContent = "Akun berhasil dibaca. Menyiapkan pilihan rumus...";
-  setLoadingProgress(100);
+  loadingStatusText.textContent = "Menyiapkan pilihan rumus per akun...";
+  setLoadingProgress(15);
   pendingGlUploadToken = payload.gl_upload_token || null;
   return Array.isArray(payload.accounts) ? payload.accounts : [];
 }
@@ -155,7 +197,8 @@ async function submitFinalUpload() {
     pendingUploadFormData.set("gl_upload_token", pendingGlUploadToken);
   }
 
-  showLoading("Uploading files and initializing comparison...");
+  resumeLoading("Langkah 3 dari 3: mengirim file compare dan menyiapkan proses...");
+  setLoadingProgress(20);
   await startUploadWithProgress(pendingUploadFormData);
 }
 
@@ -182,12 +225,14 @@ function handleProgressMessage(payload) {
     }
   } else if (payload.status === "error") {
     closeProgressStream();
+    hideLoading();
     setSubmittingState(false);
     loadingStatusText.textContent = payload.error || "Comparison failed. Please try again.";
   }
 }
 
 async function startUploadWithProgress(formData) {
+  setLoadingProgress(25);
   const response = await fetch("/upload/start", {
     method: "POST",
     body: formData,
@@ -204,6 +249,9 @@ async function startUploadWithProgress(formData) {
     throw new Error(payload.error || "Failed to start upload process.");
   }
 
+  loadingStatusText.textContent = "Job compare berhasil dibuat. Menghubungkan progress monitor...";
+  setLoadingProgress(30);
+
   const progressUrl = `/upload/progress/${encodeURIComponent(payload.job_id)}`;
   progressEventSource = new EventSource(progressUrl);
 
@@ -218,6 +266,7 @@ async function startUploadWithProgress(formData) {
 
   progressEventSource.onerror = function () {
     closeProgressStream();
+    hideLoading();
     setSubmittingState(false);
     loadingStatusText.textContent = "Connection lost while tracking progress.";
   };
@@ -232,10 +281,11 @@ uploadForm.addEventListener("submit", async function (event) {
   setSubmittingState(true);
 
   try {
+    resetCompareProgressState();
     pendingUploadFormData = new FormData(uploadForm);
-    pendingGlUploadToken = null;
     pendingAccounts = await fetchAccountOptions();
     renderAccountFormulaRows(pendingAccounts);
+    updateFormulaModalDescription(pendingAccounts);
     hideLoading();
     setSubmittingState(false);
     accountFormulaModal.show();
@@ -253,6 +303,7 @@ confirmAccountFormulaBtn.addEventListener("click", async function () {
   try {
     await submitFinalUpload();
   } catch (error) {
+    closeProgressStream();
     hideLoading();
     setSubmittingState(false);
     loadingStatusText.textContent = error.message || "Failed to upload files.";

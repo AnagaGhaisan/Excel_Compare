@@ -7,8 +7,8 @@
   <title>FileCompare</title>
   <!-- Bootstrap 5 for styling -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="icon" href="{{ url_for('static', filename='images/Logo_2.png') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="icon" href="{{ asset_url('images/Logo_2.png') }}">
+  <link rel="stylesheet" href="{{ asset_url('css/style.css') }}">
 </head>
 
 <body id="uploudPage">
@@ -17,7 +17,7 @@
     <nav class="navbar navbar-light bg-light shadow-sm py-2">
       <div class="container-fluid px-4 d-flex justify-content-between align-items-center">
         <a class="navbar-brand" href="{{ url_for('home') }}">
-          <img src="{{ url_for('static', filename='images/Logo_1.png') }}" alt="Logo" width="180" />
+          <img src="{{ asset_url('images/Logo_1.png') }}" alt="Logo" width="180" />
         </a>
 
         <button class="navbar-toggler border-0" type="button" data-bs-toggle="offcanvas"
@@ -73,7 +73,7 @@
                 Lainnya
               </h6>
               <li class="nav-item mb-2">
-                <a class="nav-link" href="{{ url_for('static', filename='pdf/Standard Operating Procedure .pdf') }}" target="_blank">
+                <a class="nav-link" href="{{ asset_url('pdf/Standard Operating Procedure .pdf') }}" target="_blank">
                   <i class="bi bi-file-earmark-text me-2"></i> Standard Operation System
                 </a>
               </li>
@@ -132,7 +132,7 @@
         </div>
 
         <div class="col-md-6 d-flex justify-content-center align-items-center">
-          <img src="{{ url_for('static', filename='images/Logo_2.png') }}" alt="Background Image" class="img-fluid">
+          <img src="{{ asset_url('images/Logo_2.png') }}" alt="Background Image" class="img-fluid">
         </div>
       </div>
     </div>
@@ -148,7 +148,7 @@
         <div id="loadingProgressContainer" class="progress loading-progress-bar-wrapper mb-2" role="progressbar"
           aria-label="Loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <div id="loadingProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success"
-            style="width: 0%">0%</div>
+            style="width: 0%"></div>
         </div>
         <div id="loadingProgressText" class="loading-progress-value">0%</div>
       </div>
@@ -164,7 +164,8 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body">
-          <p class="text-muted mb-3">
+          <p class="text-success small fw-semibold mb-1" id="accountFormulaStepText">Langkah 2 dari 3</p>
+          <p class="text-muted mb-3" id="accountFormulaDescriptionText">
             Sistem sudah membaca akun unik dari file GL. Silakan pilih rumus calculate untuk tiap akun sebelum proses compare dijalankan.
           </p>
           <div class="table-responsive">
@@ -192,7 +193,7 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
 
-  <script src="{{ url_for('static', filename='js/file_compare.js') }}"></script>
+  <script src="{{ asset_url('js/file_compare.js') }}"></script>
 
 </body>
 

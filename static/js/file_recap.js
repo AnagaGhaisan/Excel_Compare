@@ -13,7 +13,7 @@ function setLoadingProgress(value) {
   const percentageText = `${normalizedValue}%`;
 
   loadingProgressBar.style.width = percentageText;
-  loadingProgressBar.textContent = percentageText;
+  loadingProgressBar.textContent = "";
   loadingProgressText.textContent = percentageText;
   loadingProgressContainer.setAttribute("aria-valuenow", normalizedValue);
 }

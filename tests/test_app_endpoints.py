@@ -131,6 +131,24 @@ class FlaskEndpointTests(unittest.TestCase):
         self.assertIn("mode=compare", response.location)
         self.assertIn("sheets=Sheet1,Sheet2", response.location)
 
+    @patch("app.compare_files", side_effect=RuntimeError("compare boom"))
+    @patch("app.pd.read_excel")
+    @patch("app.uuid.uuid4")
+    def test_upload_failure_cleans_up_uploaded_files(
+        self, mock_uuid, mock_read_excel, _
+    ):
+        mock_uuid.return_value = "12345678-aaaa-bbbb-cccc-ddddeeeeffff"
+        mock_read_excel.return_value = {"Sheet1": pd.DataFrame([{"x": 1}])}
+
+        data = {
+            "k3_file": (io.BytesIO(b"dummy"), "k3.xlsx"),
+            "coretax_file_1": (io.BytesIO(b"dummy"), "core1.xlsx"),
+            "coretax_file_2": (io.BytesIO(b"dummy"), "core2.xlsx"),
+        }
+        with self.assertRaises(RuntimeError):
+            self.client.post("/upload", data=data, content_type="multipart/form-data")
+        self.assertEqual(os.listdir(app.config["UPLOAD_FOLDER"]), [])
+
     @patch("app.COMPARE_EXECUTOR.submit")
     @patch("app.uuid.uuid4")
     def test_upload_start_returns_job_id_and_accepted(self, mock_uuid, mock_submit):
@@ -305,6 +323,38 @@ class FlaskEndpointTests(unittest.TestCase):
         self.assertIn("/comparison?", response.location)
         self.assertIn("updated_file=Final_Ekualisasi_test.xlsx", response.location)
         self.assertIn("mode=recap", response.location)
+
+    @patch("recap_handler.process_recap_2_files", side_effect=RuntimeError("recap boom"))
+    @patch("recap_handler.uuid.uuid4")
+    def test_upload_recap_failure_cleans_up_uploaded_files(self, mock_uuid, _):
+        mock_uuid.return_value = "11223344-aaaa-bbbb-cccc-ddddeeeeffff"
+
+        data = {
+            "k3_file": (io.BytesIO(b"gl"), "draft_gl.xlsx"),
+            "ppn_file": (io.BytesIO(b"ppn"), "rekap_ppn.xlsx"),
+        }
+        response = self.client.post(
+            "/upload_recap", data=data, content_type="multipart/form-data"
+        )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(os.listdir(app.config["UPLOAD_FOLDER"]), [])
+
+    @patch("app.proses_ekualisasi", side_effect=RuntimeError("ekualisasi boom"))
+    @patch("app.uuid.uuid4")
+    def test_ekualisasi_pph23_failure_cleans_up_uploaded_files(self, mock_uuid, _):
+        mock_uuid.return_value = "abcdef12-aaaa-bbbb-cccc-ddddeeeeffff"
+
+        data = {
+            "file_bupot": (io.BytesIO(b"bupot"), "bupot.xlsx"),
+            "file_voucher": (io.BytesIO(b"voucher"), "voucher.xlsx"),
+        }
+        response = self.client.post(
+            "/ekualisasi-pph23", data=data, content_type="multipart/form-data"
+        )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(os.listdir(app.config["UPLOAD_FOLDER"]), [])
 
 
 if __name__ == "__main__":

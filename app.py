@@ -604,13 +604,13 @@ def upload_file():
             app.config["UPLOAD_FOLDER"], coretax_filename_2
         )
 
-        # 5. Simpan file fisik
-        k3_file.save(k3_file_path)
-        coretax_file_1.save(coretax_file_path_1)
-        coretax_file_2.save(coretax_file_path_2)
-
-        # 1) Read all sheets for K3 and Coretax files
         try:
+            # 5. Simpan file fisik
+            k3_file.save(k3_file_path)
+            coretax_file_1.save(coretax_file_path_1)
+            coretax_file_2.save(coretax_file_path_2)
+
+            # 1) Read all sheets for K3 and Coretax files
             k3_sheets = pd.read_excel(
                 k3_file_path, sheet_name=None, header=1
             )  # Ensure header is read from row 2
@@ -637,32 +637,33 @@ def upload_file():
             print(f"Error reading files: {e}")
             return "Error reading the Excel files."
 
-        # ... (bagian upload file di atas tetap sama) ...
+        try:
+            # 2. Definisikan variabel output_dir agar tidak error
+            output_dir = app.config["OUTPUT_COMPARE_FOLDER"]
 
-        # 2. Definisikan variabel output_dir agar tidak error
-        output_dir = app.config["OUTPUT_COMPARE_FOLDER"]
-
-        # 3. Jalankan proses perbandingan (Cukup panggil SATU kali saja)
-        full_path, file_name, sheet_list = compare_files(
-            k3_sheets,
-            coretax_sheets_1,
-            coretax_sheets_2,
-            output_dir,
-            account_formula_map=account_formula_map,
-        )
-
-        _delete_uploaded_files([k3_file_path, coretax_file_path_1, coretax_file_path_2])
-
-        # 5. Redirect dengan menyertakan mode='compare'
-        return redirect(
-            url_for(
-                "show_comparison",
-                updated_file=file_name,
-                mode="compare",  # Menandai ini mode compare
-                sheets=",".join(sheet_list),
-                page=1,
+            # 3. Jalankan proses perbandingan (Cukup panggil SATU kali saja)
+            _, file_name, sheet_list = compare_files(
+                k3_sheets,
+                coretax_sheets_1,
+                coretax_sheets_2,
+                output_dir,
+                account_formula_map=account_formula_map,
             )
-        )
+
+            # 5. Redirect dengan menyertakan mode='compare'
+            return redirect(
+                url_for(
+                    "show_comparison",
+                    updated_file=file_name,
+                    mode="compare",  # Menandai ini mode compare
+                    sheets=",".join(sheet_list),
+                    page=1,
+                )
+            )
+        finally:
+            _delete_uploaded_files(
+                [k3_file_path, coretax_file_path_1, coretax_file_path_2]
+            )
 
     return "Invalid file type"
 
@@ -835,22 +836,22 @@ def ekualisasi_pph23_route():
             output_path = os.path.join(app.config["OUTPUT_COMPARE_FOLDER"], output_filename)
             template_path = os.path.join(BASE_DIR, "static", "template", "Format Output.xlsx")
             
-            # 6. Simpan file fisik ke server
-            file_bupot.save(bupot_path)
-            file_voucher.save(voucher_path)
-            
             try:
+                # 6. Simpan file fisik ke server
+                file_bupot.save(bupot_path)
+                file_voucher.save(voucher_path)
+
                 # 7. Jalankan pemrosesan
                 proses_ekualisasi(bupot_path, voucher_path, template_path, output_path)
-                
-                _delete_uploaded_files([bupot_path, voucher_path])
-                
+
                 # 9. Kembalikan file hasil
                 return send_file(output_path, as_attachment=True, download_name='Hasil_Ekualisasi_PPH23.xlsx')
             
             except Exception as e:
                 print(f"Error Ekualisasi PPH23: {e}")
                 return f"Terjadi kesalahan saat memproses data: {str(e)}", 500
+            finally:
+                _delete_uploaded_files([bupot_path, voucher_path])
                 
         return "Invalid file type", 400
                 
